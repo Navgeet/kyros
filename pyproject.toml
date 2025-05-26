@@ -1,0 +1,20 @@
+[project]
+name = "triton"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiortc>=1.12.0",
+    "fastmcp>=2.5.1",
+    "langchain-community>=0.3.24",
+    "langchain-mcp-adapters>=0.1.1",
+    "langchain-ollama>=0.3.3",
+    "langgraph>=0.4.7",
+    "mcp-pyautogui>=0.0.4",
+    "pillow>=11.2.1",
+    "pyautogui>=0.9.54",
+    "pyscreeze>=1.0.1",
+    "termcolor>=3.1.0",
+    "websockets>=15.0.1",
+]
