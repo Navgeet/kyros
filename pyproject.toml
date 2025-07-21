@@ -1,0 +1,12 @@
+[project]
+name = "ai-agent"
+version = "0.1.0"
+description = "AI Agent with planning and execution"
+dependencies = [
+    "pyautogui>=0.9.54",
+    "requests>=2.31.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
