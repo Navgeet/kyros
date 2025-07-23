@@ -139,10 +139,15 @@ class Tools:
             return False
     
     @staticmethod
-    def run_shell_command(args: str) -> bool:
+    def run_shell_command(args: str, task=None) -> bool:
         """Runs a shell command with the given arguments."""
         try:
             result = subprocess.run(args, shell=True, capture_output=True, text=True, timeout=30)
+            
+            # Capture output in task if provided
+            if task:
+                task.stdout = result.stdout
+                task.stderr = result.stderr
             
             if result.stdout:
                 print(f"Output: {result.stdout}")
@@ -152,8 +157,14 @@ class Tools:
             return result.returncode == 0
             
         except subprocess.TimeoutExpired:
-            print("Command timed out after 30 seconds")
+            error_msg = "Command timed out after 30 seconds"
+            if task:
+                task.stderr = error_msg
+            print(error_msg)
             return False
         except Exception as e:
-            print(f"Error running shell command: {e}")
+            error_msg = f"Error running shell command: {e}"
+            if task:
+                task.stderr = error_msg
+            print(error_msg)
             return False

@@ -16,6 +16,8 @@ class AIAgent:
         print(f"📝 Task: {user_input}")
         print()
         
+        previous_tasks = None
+        
         for attempt in range(max_retries):
             if attempt > 0:
                 print(f"🔄 Retrying task (attempt {attempt + 1}/{max_retries})...")
@@ -23,7 +25,7 @@ class AIAgent:
             
             # Plan phase
             print("🧠 Planning...")
-            tasks = self.planner.generate_plan(user_input)
+            tasks = self.planner.generate_plan(user_input, previous_task_state=previous_tasks)
             
             if not tasks:
                 print("❌ Failed to generate plan!")
@@ -44,6 +46,7 @@ class AIAgent:
                 print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     print("🔄 Going back to planning...")
+                    previous_tasks = tasks  # Pass failed tasks as context
                     print()
         
         print("❌ Task failed after all retry attempts!")

@@ -8,6 +8,9 @@ class Task:
         self.subtasks = []
         self.dependencies = []
         self.verify_screen_change = verify_screen_change
+        self.status = "blocked"  # blocked, running, success, error
+        self.stdout = ""
+        self.stderr = ""
     
     def addSubtasks(self, *subtasks):
         """Add one or more subtasks to this task"""
@@ -24,7 +27,10 @@ class Task:
             'name': self.name,
             'subtasks': [subtask.to_dict() if hasattr(subtask, 'to_dict') else str(subtask) for subtask in self.subtasks],
             'dependencies': [dep.name if hasattr(dep, 'name') else str(dep) for dep in self.dependencies],
-            'verify_screen_change': self.verify_screen_change
+            'verify_screen_change': self.verify_screen_change,
+            'status': self.status,
+            'stdout': self.stdout,
+            'stderr': self.stderr
         }
 
 class ToolCall(Task):
@@ -38,7 +44,10 @@ class ToolCall(Task):
             'type': 'tool_call',
             'tool_name': self.tool_name,
             'params': self.params,
-            'name': self.name
+            'name': self.name,
+            'status': self.status,
+            'stdout': self.stdout,
+            'stderr': self.stderr
         }
 
 
@@ -46,12 +55,12 @@ class Planner:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.ollama_url = ollama_url
     
-    def generate_plan(self, user_input: str, max_retries: int = 3) -> List[Task]:
+    def generate_plan(self, user_input: str, max_retries: int = 3, previous_task_state: List[Task] = None) -> List[Task]:
         for attempt in range(max_retries):
             if attempt > 0:
                 print(f"Retrying plan generation (attempt {attempt + 1}/{max_retries})...")
             
-            plan = self._generate_single_plan(user_input)
+            plan = self._generate_single_plan(user_input, previous_task_state)
             
             # Validation disabled for now
             tasks = []
@@ -64,10 +73,20 @@ class Planner:
         
         return []
     
-    def _generate_single_plan(self, user_input: str) -> str:
+    def _generate_single_plan(self, user_input: str, previous_task_state: List[Task] = None) -> str:
+        # Add previous task state as JSON context if available
+        context_section = ""
+        if previous_task_state:
+            previous_tasks_json = json.dumps([task.to_dict() for task in previous_task_state], indent=2)
+            context_section = f"""
+<PreviousPlan>
+{previous_tasks_json}
+</PreviousPlan>
+"""
+
         prompt = f"""
 <Instruction>
-You are a task planner. Given a user request, generate tasks to accomplish it. Return the python code only.
+You are a task planner. Given a user request, generate tasks to accomplish it. Return the python code only.{context_section}
 
 <Example>
 <Input>search google for restaurants near me</Input>
