@@ -1,7 +1,10 @@
 import pyautogui
 import subprocess
 import time
+import os
 from typing import Dict, Any
+from PIL import Image
+import hashlib
 
 class Tools:
     @staticmethod
@@ -82,4 +85,75 @@ class Tools:
             return True
         except Exception as e:
             print(f"Error typing text: {e}")
+            return False
+    
+    @staticmethod
+    def screenshot(name: str) -> bool:
+        """Takes a screenshot and saves it with the given name."""
+        try:
+            # Create screenshots directory if it doesn't exist
+            os.makedirs("screenshots", exist_ok=True)
+            
+            # Take screenshot
+            screenshot = pyautogui.screenshot()
+            filepath = f"screenshots/{name}.png"
+            screenshot.save(filepath)
+            
+            print(f"Screenshot saved as {filepath}")
+            return True
+            
+        except Exception as e:
+            print(f"Error taking screenshot: {e}")
+            return False
+    
+    @staticmethod
+    def compare_screenshots(before: str, after: str) -> bool:
+        """Compares two screenshots to detect if there was a visual change."""
+        try:
+            before_path = f"screenshots/{before}.png"
+            after_path = f"screenshots/{after}.png"
+            
+            # Check if both files exist
+            if not os.path.exists(before_path) or not os.path.exists(after_path):
+                print(f"Screenshots not found: {before_path}, {after_path}")
+                return False
+            
+            # Load images
+            img_before = Image.open(before_path)
+            img_after = Image.open(after_path)
+            
+            # Convert to bytes and hash for quick comparison
+            before_hash = hashlib.md5(img_before.tobytes()).hexdigest()
+            after_hash = hashlib.md5(img_after.tobytes()).hexdigest()
+            
+            # Check if images are different
+            if before_hash != after_hash:
+                print("✓ Screen change detected - task verification successful")
+                return True
+            else:
+                print("✗ No screen change detected - task may have failed")
+                return False
+                
+        except Exception as e:
+            print(f"Error comparing screenshots: {e}")
+            return False
+    
+    @staticmethod
+    def run_shell_command(args: str) -> bool:
+        """Runs a shell command with the given arguments."""
+        try:
+            result = subprocess.run(args, shell=True, capture_output=True, text=True, timeout=30)
+            
+            if result.stdout:
+                print(f"Output: {result.stdout}")
+            if result.stderr:
+                print(f"Error: {result.stderr}")
+            
+            return result.returncode == 0
+            
+        except subprocess.TimeoutExpired:
+            print("Command timed out after 30 seconds")
+            return False
+        except Exception as e:
+            print(f"Error running shell command: {e}")
             return False

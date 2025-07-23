@@ -1,4 +1,5 @@
 from typing import Dict, List, Any
+import time
 from tools import Tools
 from planner import Task, ToolCall
 
@@ -36,6 +37,10 @@ class Executor:
                 self.completed_tasks.add(task.name)
                 tasks_to_execute.remove(task)
                 print(f"✓ Completed task: {task.name}")
+                
+                # Add delay between tasks
+                if tasks_to_execute:  # Only delay if there are more tasks
+                    time.sleep(0.5)
             else:
                 print(f"✗ Failed task: {task.name}")
                 return False
@@ -50,6 +55,10 @@ class Executor:
         # If this is a ToolCall, execute it directly
         if isinstance(task, ToolCall):
             return self._execute_tool_call(task)
+        
+        # Handle screen verification tasks
+        if hasattr(task, 'verify_screen_change') and task.verify_screen_change:
+            return self._execute_verified_task(task)
         
         # For regular tasks, execute all subtasks
         if task.subtasks:
@@ -68,4 +77,45 @@ class Executor:
             return method(**tool_call.params)
         else:
             print(f"Unknown tool: {tool_call.tool_name}")
+            return False
+    
+    def _execute_verified_task(self, task: Task) -> bool:
+        """Execute a task with screen change verification."""
+        print(f"Executing verified task: {task.name}")
+        
+        # Generate unique screenshot names
+        task_id = task.name.replace(' ', '_').replace(':', '').replace('(', '').replace(')', '')
+        before_name = f"before_{task_id}"
+        after_name = f"after_{task_id}"
+        
+        # Take before screenshot
+        print("Taking before screenshot...")
+        if not self.tools.screenshot(before_name):
+            print("Failed to take before screenshot")
+            return False
+        
+        # Execute the task's subtasks
+        if task.subtasks:
+            success = self._execute_tasks(task.subtasks)
+            if not success:
+                print("Task execution failed")
+                return False
+        else:
+            print("No subtasks to execute")
+        
+        # Take after screenshot
+        print("Taking after screenshot...")
+        if not self.tools.screenshot(after_name):
+            print("Failed to take after screenshot")
+            return False
+        
+        # Compare screenshots
+        print("Comparing screenshots...")
+        verification_success = self.tools.compare_screenshots(before_name, after_name)
+        
+        if verification_success:
+            print(f"✓ Screen verification passed for task: {task.name}")
+            return True
+        else:
+            print(f"✗ Screen verification failed for task: {task.name}")
             return False
