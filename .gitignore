@@ -1,0 +1,9 @@
+.DS_Store
+.idea
+*.log
+tmp/
+
+claude.md
+/__pycache__
+/.vscode
+/screenshots
