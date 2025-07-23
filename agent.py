@@ -11,29 +11,43 @@ class AIAgent:
         self.planner = Planner(ollama_url)
         self.executor = Executor()
     
-    def run_task(self, user_input: str) -> bool:
+    def run_task(self, user_input: str, max_retries: int = 3) -> bool:
         """Run a single task with the given user input."""
         print(f"📝 Task: {user_input}")
         print()
         
-        # Plan phase
-        print("🧠 Planning...")
-        tasks = self.planner.generate_plan(user_input)
+        for attempt in range(max_retries):
+            if attempt > 0:
+                print(f"🔄 Retrying task (attempt {attempt + 1}/{max_retries})...")
+                print()
+            
+            # Plan phase
+            print("🧠 Planning...")
+            tasks = self.planner.generate_plan(user_input)
+            
+            if not tasks:
+                print("❌ Failed to generate plan!")
+                continue
+            
+            print("📋 Generated plan:")
+            self._print_tasks(tasks)
+            print()
+            
+            # Execute phase
+            print("⚙️  Executing...")
+            success = self.executor.execute_plan(tasks)
+            
+            if success:
+                print("🎉 Task completed successfully!")
+                return True
+            else:
+                print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    print("🔄 Going back to planning...")
+                    print()
         
-        print("📋 Generated plan:")
-        self._print_tasks(tasks)
-        print()
-        
-        # Execute phase
-        print("⚙️  Executing...")
-        success = self.executor.execute_plan(tasks)
-        
-        if success:
-            print("🎉 Task completed successfully!")
-        else:
-            print("❌ Task failed!")
-        
-        return success
+        print("❌ Task failed after all retry attempts!")
+        return False
     
     def _print_tasks(self, tasks, indent=0):
         """Print tasks with their subtasks in a hierarchical format."""
