@@ -136,7 +136,7 @@ tasks.append(a) # this is important
                 if '<think>' in code and '</think>' in code:
                     thinking_content = code.split('<think>')[1].split('</think>')[0].strip()
                     print("💭 Thinking:")
-                    print(thinking_content)
+                    print(f"\033[90m{thinking_content}\033[0m")  # Grey text
                     print()
                 
                 return code.split('</think>')[1].strip()

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import asyncio
 from planner import Planner
 from executor import Executor
+from utils import input
 
 class AIAgent:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
@@ -47,7 +49,7 @@ class AIAgent:
             if task.subtasks:
                 self._print_tasks(task.subtasks, indent + 1)
     
-    def run_interactive(self):
+    async def run_interactive(self):
         """Run the agent in interactive mode - continuous loop."""
         print("🤖 AI Agent starting in interactive mode...")
         print("Type 'quit', 'exit', or 'q' to stop.")
@@ -55,9 +57,9 @@ class AIAgent:
         
         while True:
             try:
-                user_input = input("Enter task: ").strip()
+                user_input = await input()
                 
-                if user_input.lower() in ['quit', 'exit', 'q', '']:
+                if user_input.lower() in ['quit', 'exit', 'q']:
                     print("👋 Goodbye!")
                     break
                 
@@ -90,7 +92,7 @@ def main():
         agent.run_task(args.task)
     else:
         # Interactive mode
-        agent.run_interactive()
+        asyncio.run(agent.run_interactive())
 
 if __name__ == "__main__":
     main()

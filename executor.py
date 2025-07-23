@@ -102,6 +102,8 @@ class Executor:
                 return False
         else:
             print("No subtasks to execute")
+
+        time.sleep(1)
         
         # Take after screenshot
         print("Taking after screenshot...")
