@@ -1,6 +1,9 @@
 import requests
 import json
+import base64
+import pyautogui
 from typing import Dict, List, Any
+from io import BytesIO
 
 class Task:
     def __init__(self, name: str, verify_screen_change: bool = False):
@@ -56,11 +59,15 @@ class Planner:
         self.ollama_url = ollama_url
     
     def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None) -> List[Task]:
+        # First generate screen context
+        print("🔍 Analyzing screen...")
+        screen_context = self._generate_screen_context()
+
         for attempt in range(max_retries):
             if attempt > 0:
                 print(f"Retrying plan generation (attempt {attempt + 1}/{max_retries})...")
             
-            plan = self._generate_single_plan(user_input, conversation_history)
+            plan = self._generate_single_plan(user_input, conversation_history, screen_context)
             
             # Validation disabled for now
             tasks = []
@@ -73,20 +80,66 @@ class Planner:
         
         return []
     
-    def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None) -> str:
-        # Add conversation history as context if available
+    def _generate_screen_context(self) -> str:
+        """Generate screen context using vision model."""
+        # Capture current screen as base64
+        screenshot = pyautogui.screenshot()
+        buffer = BytesIO()
+        screenshot.save(buffer, format='PNG')
+        screen_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        
+        context_prompt = """
+Analyze the current screen image and describe:
+1. What applications/windows are visible
+2. What UI elements are shown (buttons, text fields, menus, etc.)
+3. Current state of the desktop/applications
+4. Any relevant context that would be useful for task planning
+
+Provide a concise but detailed description of what you see.
+"""
+        
+        try:
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={
+                    "model": "qwen2.5vl:7b",
+                    "prompt": context_prompt,
+                    "stream": False,
+                    "images": [screen_base64]
+                }
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                context = result.get('response', '')
+                print(f"📄 Screen context: {context[:100]}...")
+                return context
+        except Exception as e:
+            print(f"Error generating screen context: {e}")
+        
+        return "Screen context unavailable"
+    
+    def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None, screen_context: str = "") -> str:
+        # Add conversation history and screen context as context if available
         context_section = ""
         if conversation_history:
             history_json = json.dumps(conversation_history, indent=2)
-            context_section = f"""
+            context_section += f"""
 <History>
 {history_json}
 </History>
 """
+        
+        if screen_context:
+            context_section += f"""
+<ScreenContext>
+{screen_context}
+</ScreenContext>
+"""
 
         prompt = f"""
 <Instruction>
-You are a task planner. Given a user request, generate tasks to accomplish it. Return the python code only.{context_section}
+You are a task planner. Given a user request and screen context, generate tasks to accomplish it. Return the python code only.{context_section}
 
 <Example>
 <Input>search google for restaurants near me</Input>
