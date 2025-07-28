@@ -55,12 +55,12 @@ class Planner:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.ollama_url = ollama_url
     
-    def generate_plan(self, user_input: str, max_retries: int = 3, previous_task_state: List[Task] = None) -> List[Task]:
+    def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None) -> List[Task]:
         for attempt in range(max_retries):
             if attempt > 0:
                 print(f"Retrying plan generation (attempt {attempt + 1}/{max_retries})...")
             
-            plan = self._generate_single_plan(user_input, previous_task_state)
+            plan = self._generate_single_plan(user_input, conversation_history)
             
             # Validation disabled for now
             tasks = []
@@ -73,15 +73,15 @@ class Planner:
         
         return []
     
-    def _generate_single_plan(self, user_input: str, previous_task_state: List[Task] = None) -> str:
-        # Add previous task state as JSON context if available
+    def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None) -> str:
+        # Add conversation history as context if available
         context_section = ""
-        if previous_task_state:
-            previous_tasks_json = json.dumps([task.to_dict() for task in previous_task_state], indent=2)
+        if conversation_history:
+            history_json = json.dumps(conversation_history, indent=2)
             context_section = f"""
-<PreviousPlan>
-{previous_tasks_json}
-</PreviousPlan>
+<History>
+{history_json}
+</History>
 """
 
         prompt = f"""

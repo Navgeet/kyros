@@ -10,12 +10,16 @@ class AIAgent:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.planner = Planner(ollama_url)
         self.executor = Executor()
+        self.conversation_history = []
     
     def run_task(self, user_input: str, max_retries: int = 3) -> bool:
         """Run a single task with the given user input."""
         print(f"📝 Task: {user_input}")
         print()
         
+        # Add user message to conversation history
+        self.conversation_history.append({"from": "user", "message": user_input})
+
         previous_tasks = None
         
         for attempt in range(max_retries):
@@ -25,7 +29,7 @@ class AIAgent:
             
             # Plan phase
             print("🧠 Planning...")
-            tasks = self.planner.generate_plan(user_input, previous_task_state=previous_tasks)
+            tasks = self.planner.generate_plan(user_input, conversation_history=self.conversation_history)
             
             if not tasks:
                 print("❌ Failed to generate plan!")
@@ -41,6 +45,8 @@ class AIAgent:
             
             if success:
                 print("🎉 Task completed successfully!")
+                # Add successful plan to conversation history
+                self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
                 return True
             else:
                 print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
@@ -50,6 +56,9 @@ class AIAgent:
                     print()
         
         print("❌ Task failed after all retry attempts!")
+        # Add failed plan to conversation history
+        if previous_tasks:
+            self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in previous_tasks]})
         return False
     
     def _print_tasks(self, tasks, indent=0):

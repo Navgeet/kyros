@@ -1,5 +1,6 @@
 from typing import Dict, List, Any
 import time
+import uuid
 from tools import Tools
 from planner import Task, ToolCall
 
@@ -128,10 +129,11 @@ class Executor:
         """Execute a task with screen change verification."""
         print(f"Executing verified task: {task.name}")
         
-        # Generate unique screenshot names
+        # Generate unique screenshot names using UUID
+        unique_id = str(uuid.uuid4())[:8]
         task_id = task.name.replace(' ', '_').replace(':', '').replace('(', '').replace(')', '')
-        before_name = f"before_{task_id}"
-        after_name = f"after_{task_id}"
+        before_name = f"before_{task_id}_{unique_id}"
+        after_name = f"after_{task_id}_{unique_id}"
         
         # Take before screenshot
         print("Taking before screenshot...")

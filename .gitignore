@@ -3,7 +3,7 @@
 *.log
 tmp/
 
-claude.md
+CLAUDE.md
 /__pycache__
 /.vscode
 /screenshots
