@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import asyncio
 import json
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +10,12 @@ from typing import List, Dict, Any
 import uvicorn
 import argparse
 from agent import AIAgent
+from logger import web_logger
+from simple_sessions import SimpleSessionManager
 import os
+import uuid
+from typing import Optional
+from datetime import datetime
 
 app = FastAPI(title="Triton AI Agent Web Interface")
 templates = Jinja2Templates(directory="templates")
@@ -19,74 +23,119 @@ templates = Jinja2Templates(directory="templates")
 class TaskRequest(BaseModel):
     task: str
     max_retries: int = 3
+    session_id: Optional[str] = None
 
 class TaskResponse(BaseModel):
-    success: bool
-    message: str
-    plan: List[Dict[str, Any]] = None
-    conversation_history: List[Dict[str, Any]] = None
+    task_id: str
+    session_id: str
+    status: str
 
-# Global agent instance
-agent = None
+class MessagesRequest(BaseModel):
+    session_id: str
+    since_message_id: Optional[str] = None
+
+class MessagesResponse(BaseModel):
+    messages: List[Dict[str, Any]]
+    session_id: str
+
+# Global session manager
+session_manager = None
 
 @app.on_event("startup")
-async def startup():
-    global agent
+def startup():
+    global session_manager
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-    agent = AIAgent(ollama_url)
+    session_manager = SimpleSessionManager(ollama_url)
+    web_logger.info(f"Web server started with Ollama URL: {ollama_url}")
 
 @app.get("/", response_class=HTMLResponse)
-async def get_index():
+def get_index():
     """Serve the main web interface."""
     with open("templates/index.html", "r") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
 @app.post("/api/execute", response_model=TaskResponse)
-async def execute_task(request: TaskRequest):
-    """Execute a task using the AI agent."""
-    if not agent:
-        raise HTTPException(status_code=500, detail="Agent not initialized")
+def execute_task(request: TaskRequest):
+    """Start task execution in background thread."""
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="Session manager not initialized")
     
     try:
-        success = agent.run_task(request.task, request.max_retries)
+        # Get or create session
+        session = session_manager.get_or_create_session(request.session_id)
+        session_id = session.session_id
         
-        # Get the last executed plan from conversation history
-        plan = None
-        if agent.conversation_history:
-            for entry in reversed(agent.conversation_history):
-                if "plan" in entry:
-                    plan = entry["plan"]
-                    break
-        
-        message = "Task completed successfully!" if success else "Task execution failed after all retry attempts"
+        # Start task execution in background thread
+        session.start_task_async(request.task, request.max_retries)
         
         return TaskResponse(
-            success=success,
-            message=message,
-            plan=plan,
-            conversation_history=agent.conversation_history
+            task_id=str(uuid.uuid4()),
+            session_id=session_id,
+            status="started"
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error executing task: {str(e)}")
+        web_logger.error(f"Web API: Error starting task: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error starting task: {str(e)}")
+
+@app.post("/api/messages", response_model=MessagesResponse)
+def get_messages(request: MessagesRequest):
+    """Get session status (simplified - no message history)."""
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="Session manager not initialized")
+    
+    try:
+        status = session_manager.get_session_status(request.session_id)
+        # Convert status to message format for compatibility
+        messages = [{
+            "id": "status",
+            "type": "status",
+            "content": f"Session status: {status.get('status', 'unknown')}",
+            "timestamp": datetime.now().isoformat(),
+            "metadata": status
+        }]
+        return MessagesResponse(
+            messages=messages,
+            session_id=request.session_id
+        )
+    except Exception as e:
+        web_logger.error(f"Web API: Error getting session status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting session status: {str(e)}")
 
 @app.get("/api/status")
-async def get_status():
-    """Get the current status of the agent."""
+def get_status():
+    """Get the current status of the session manager."""
+    if not session_manager:
+        return {"status": "not_initialized"}
+    
     return {
-        "status": "ready" if agent else "not_initialized",
-        "conversation_length": len(agent.conversation_history) if agent else 0
+        "status": "ready",
+        "sessions": session_manager.get_stats()
     }
 
-@app.post("/api/reset")
-async def reset_conversation():
-    """Reset the conversation history."""
-    if agent:
-        agent.conversation_history = []
-        return {"status": "reset"}
+@app.post("/api/sessions")
+def create_session():
+    """Create a new session."""
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="Session manager not initialized")
+    
+    session_id = session_manager.create_session()
+    web_logger.info(f"Web API: Created new session {session_id}")
+    return {"session_id": session_id}
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str):
+    """Delete a session."""
+    if not session_manager:
+        raise HTTPException(status_code=500, detail="Session manager not initialized")
+    
+    success = session_manager.delete_session(session_id)
+    if success:
+        web_logger.info(f"Web API: Deleted session {session_id}")
+        return {"status": "deleted"}
     else:
-        raise HTTPException(status_code=500, detail="Agent not initialized")
+        raise HTTPException(status_code=404, detail="Session not found")
 
 def main():
     parser = argparse.ArgumentParser(description='Triton AI Agent Web Server')
@@ -102,6 +151,9 @@ def main():
     
     # Set environment variable for the agent
     os.environ["OLLAMA_URL"] = args.ollama_url
+    
+    web_logger.info(f"Starting Triton AI Agent Web Server on {args.host}:{args.port}")
+    web_logger.info(f"Using Ollama URL: {args.ollama_url}")
     
     print(f"🚀 Starting Triton AI Agent Web Server...")
     print(f"🌐 Server: http://{args.host}:{args.port}")

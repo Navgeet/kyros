@@ -250,6 +250,11 @@
                     Ready
                 </div>
                 
+                <div id="polling-status" style="margin-top: 10px; font-size: 0.8rem; color: #666; display: none;">
+                    <span style="display: inline-block; width: 8px; height: 8px; background: #28a745; border-radius: 50%; margin-right: 5px; animation: pulse 1s infinite;"></span>
+                    Checking status...
+                </div>
+
                 <h3 style="margin-top: 30px;">Features</h3>
                 <ul style="list-style: none; padding: 0;">
                     <li style="margin: 10px 0;">🧠 AI-powered planning</li>
@@ -276,6 +281,12 @@
     </div>
     
     <script>
+        // Global state
+        let currentSessionId = null;
+        let lastMessageId = null;
+        let pollingInterval = null;
+        let isTaskRunning = false;
+        
         function setTask(task) {
             document.getElementById('taskInput').value = task;
         }
@@ -286,7 +297,7 @@
             }
         }
         
-        function addMessage(type, content, plan = null) {
+        function addMessage(type, content, metadata = null) {
             const messages = document.getElementById('messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${type}`;
@@ -296,14 +307,17 @@
                 case 'user': headerText = 'You'; break;
                 case 'system': headerText = 'Agent'; break;
                 case 'error': headerText = 'Error'; break;
+                case 'status': headerText = 'Status'; break;
+                case 'execution': headerText = 'Execution'; break;
                 default: headerText = 'System'; break;
             }
             
             let messageContent = `<div class="message-header">${headerText}</div>${content}`;
             
-            if (plan && plan.length > 0) {
+            // Show plan if available in metadata
+            if (metadata && metadata.plan && metadata.plan.length > 0) {
                 messageContent += '<div class="plan-display"><strong>Execution Plan:</strong>';
-                plan.forEach((task, index) => {
+                metadata.plan.forEach((task, index) => {
                     const indent = '  '.repeat(task.level || 0);
                     const deps = task.dependencies ? ` (depends on: ${task.dependencies.join(', ')})` : '';
                     messageContent += `<div class="plan-task">${indent}${task.name}${deps}</div>`;
@@ -321,48 +335,113 @@
             statusDiv.innerHTML = `<span class="status-indicator ${status}"></span>${text}`;
         }
         
-        async function submitTask() {
-            const taskInput = document.getElementById('taskInput');
-            const submitBtn = document.getElementById('submitBtn');
-            const loading = document.getElementById('loading');
-            
-            const task = taskInput.value.trim();
-            if (!task) return;
-            
-            // Disable input and show loading
-            taskInput.disabled = true;
-            submitBtn.disabled = true;
-            loading.style.display = 'block';
-            updateStatus('working', 'Processing...');
-            
-            // Add user message
-            addMessage('user', task);
+        async function initializeSession() {
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const result = await response.json();
+                currentSessionId = result.session_id;
+                console.log('Session initialized:', currentSessionId);
+                
+            } catch (error) {
+                console.error('Failed to initialize session:', error);
+                addMessage('error', 'Failed to initialize session');
+            }
+        }
+        
+        async function pollTaskStatus() {
+            if (!currentSessionId || !isTaskRunning) return;
             
             try {
-                const response = await fetch('/api/execute', {
+                const response = await fetch('/api/messages', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ task: task })
+                    body: JSON.stringify({
+                        session_id: currentSessionId,
+                        since_message_id: null
+                    })
                 });
                 
                 const result = await response.json();
                 
-                if (result.success) {
-                    addMessage('system', result.message, result.plan);
-                    updateStatus('ready', 'Ready');
-                } else {
-                    addMessage('error', result.message);
-                    updateStatus('error', 'Error');
+                // Get the latest status from the simplified session
+                if (result.messages && result.messages.length > 0) {
+                    const statusMessage = result.messages[0];
+                    const metadata = statusMessage.metadata;
+                    
+                    if (metadata && metadata.status) {
+                        switch (metadata.status) {
+                            case 'idle':
+                                updateStatus('ready', 'Ready');
+                                isTaskRunning = false;
+                                enableInput();
+                                stopPolling();
+                                break;
+                            case 'running':
+                                updateStatus('working', `Processing: ${metadata.current_task || 'Task in progress'}`);
+                                break;
+                            case 'completed':
+                                updateStatus('ready', 'Task completed successfully!');
+                                addMessage('system', `Task completed: ${metadata.current_task}`, metadata.result);
+                                isTaskRunning = false;
+                                enableInput();
+                                stopPolling();
+                                break;
+                            case 'failed':
+                                updateStatus('error', 'Task failed');
+                                addMessage('error', `Task failed: ${metadata.result ? metadata.result.error || 'Unknown error' : 'Unknown error'}`);
+                                isTaskRunning = false;
+                                enableInput();
+                                stopPolling();
+                                break;
+                        }
+                    }
                 }
                 
             } catch (error) {
-                addMessage('error', `Network error: ${error.message}`);
-                updateStatus('error', 'Connection Error');
+                console.error('Polling error:', error);
+                // Don't show error messages for polling failures unless it's been failing for a while
             }
+        }
+        
+        function startPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            document.getElementById('polling-status').style.display = 'block';
+            pollingInterval = setInterval(pollTaskStatus, 2000); // Poll every 2 seconds
+        }
+        
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            document.getElementById('polling-status').style.display = 'none';
+        }
+        
+        function disableInput() {
+            const taskInput = document.getElementById('taskInput');
+            const submitBtn = document.getElementById('submitBtn');
+            const loading = document.getElementById('loading');
             
-            // Re-enable input
+            taskInput.disabled = true;
+            submitBtn.disabled = true;
+            loading.style.display = 'block';
+        }
+        
+        function enableInput() {
+            const taskInput = document.getElementById('taskInput');
+            const submitBtn = document.getElementById('submitBtn');
+            const loading = document.getElementById('loading');
+            
             taskInput.disabled = false;
             submitBtn.disabled = false;
             loading.style.display = 'none';
@@ -370,9 +449,74 @@
             taskInput.focus();
         }
         
-        // Focus input on load
-        document.addEventListener('DOMContentLoaded', function() {
+        async function submitTask() {
+            if (isTaskRunning) return;
+            
+            const taskInput = document.getElementById('taskInput');
+            const task = taskInput.value.trim();
+            if (!task) return;
+            
+            if (!currentSessionId) {
+                await initializeSession();
+                if (!currentSessionId) {
+                    addMessage('error', 'Failed to initialize session');
+                    return;
+                }
+            }
+            
+            isTaskRunning = true;
+            disableInput();
+            updateStatus('working', 'Starting task...');
+            
+            try {
+                const response = await fetch('/api/execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        task: task,
+                        session_id: currentSessionId 
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Add user message to chat
+                addMessage('user', task);
+                
+                if (result.status === 'started') {
+                    // Task started successfully, start polling for updates
+                    console.log('Task started:', result.task_id);
+                    updateStatus('working', 'Task in progress...');
+                    startPolling();
+                } else {
+                    // Unexpected status
+                    addMessage('error', `Unexpected task status: ${result.status}`);
+                    updateStatus('error', 'Error');
+                    isTaskRunning = false;
+                    enableInput();
+                }
+                
+            } catch (error) {
+                addMessage('error', `Network error: ${error.message}`);
+                updateStatus('error', 'Connection Error');
+                isTaskRunning = false;
+                enableInput();
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Initialize session
+            await initializeSession();
+            
             document.getElementById('taskInput').focus();
+        });
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            stopPolling();
         });
     </script>
 </body>

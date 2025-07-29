@@ -5,15 +5,25 @@ import asyncio
 from planner import Planner
 from executor import Executor
 from utils import input
+from logger import agent_logger, get_session_logger
+import uuid
 
 class AIAgent:
-    def __init__(self, ollama_url: str = "http://localhost:11434"):
+    def __init__(self, ollama_url: str = "http://localhost:11434", session_id: str = None):
         self.planner = Planner(ollama_url)
         self.executor = Executor()
         self.conversation_history = []
+        self.session_id = session_id or str(uuid.uuid4())
+        self.session_logger = get_session_logger(self.session_id)
+        
+        agent_logger.info(f"AIAgent initialized with session_id: {self.session_id}")
+        self.session_logger.info(f"New session started with Ollama URL: {ollama_url}")
     
     def run_task(self, user_input: str, max_retries: int = 3) -> bool:
         """Run a single task with the given user input."""
+        agent_logger.info(f"Starting task: {user_input}")
+        self.session_logger.info(f"USER INPUT: {user_input}")
+        
         print(f"📝 Task: {user_input}")
         print()
         
@@ -24,37 +34,56 @@ class AIAgent:
         
         for attempt in range(max_retries):
             if attempt > 0:
+                agent_logger.info(f"Retrying task (attempt {attempt + 1}/{max_retries})")
+                self.session_logger.info(f"RETRY: Attempt {attempt + 1}/{max_retries}")
                 print(f"🔄 Retrying task (attempt {attempt + 1}/{max_retries})...")
                 print()
             
             # Plan phase
+            agent_logger.info("Starting planning phase")
+            self.session_logger.info("PLANNING: Starting plan generation")
             print("🧠 Planning...")
             tasks = self.planner.generate_plan(user_input, conversation_history=self.conversation_history)
             
             if not tasks:
+                agent_logger.warning("Failed to generate plan")
+                self.session_logger.warning("PLANNING: Failed to generate plan")
                 print("❌ Failed to generate plan!")
                 continue
+            
+            # Log the generated plan
+            plan_summary = [task.name for task in tasks]
+            agent_logger.info(f"Generated plan with {len(tasks)} tasks: {plan_summary}")
+            self.session_logger.info(f"PLAN GENERATED: {len(tasks)} tasks - {plan_summary}")
             
             print("📋 Generated plan:")
             self._print_tasks(tasks)
             print()
             
             # Execute phase
+            agent_logger.info("Starting execution phase")
+            self.session_logger.info("EXECUTION: Starting plan execution")
             print("⚙️  Executing...")
             success = self.executor.execute_plan(tasks)
             
             if success:
+                agent_logger.info("Task completed successfully")
+                self.session_logger.info("SUCCESS: Task completed successfully")
                 print("🎉 Task completed successfully!")
                 # Add successful plan to conversation history
                 self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
                 return True
             else:
+                agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
+                self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
                 print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
                     print("🔄 Going back to planning...")
                     previous_tasks = tasks  # Pass failed tasks as context
                     print()
         
+        agent_logger.error("Task failed after all retry attempts")
+        self.session_logger.error("FINAL FAILURE: Task failed after all retry attempts")
         print("❌ Task failed after all retry attempts!")
         # Add failed plan to conversation history
         if previous_tasks:
@@ -77,6 +106,9 @@ class AIAgent:
     
     async def run_interactive(self):
         """Run the agent in interactive mode - continuous loop."""
+        agent_logger.info("Starting interactive mode")
+        self.session_logger.info("INTERACTIVE MODE: Session started")
+        
         print("🤖 AI Agent starting in interactive mode...")
         print("Type 'quit', 'exit', or 'q' to stop.")
         print()
@@ -86,6 +118,8 @@ class AIAgent:
                 user_input = await input()
                 
                 if user_input.lower() in ['quit', 'exit', 'q']:
+                    agent_logger.info("Interactive mode ended by user")
+                    self.session_logger.info("INTERACTIVE MODE: Session ended by user")
                     print("👋 Goodbye!")
                     break
                 
@@ -95,9 +129,13 @@ class AIAgent:
                 print()
                 
             except KeyboardInterrupt:
+                agent_logger.info("Interactive mode interrupted by user")
+                self.session_logger.info("INTERACTIVE MODE: Session interrupted")
                 print("\n👋 Goodbye!")
                 break
             except Exception as e:
+                agent_logger.error(f"Error in interactive mode: {e}")
+                self.session_logger.error(f"INTERACTIVE ERROR: {e}")
                 print(f"❌ Error: {e}")
                 print()
 
