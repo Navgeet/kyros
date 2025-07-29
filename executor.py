@@ -2,7 +2,7 @@ from typing import Dict, List, Any
 import time
 import uuid
 from tools import Tools
-from planner import Task, ToolCall
+from planner import Task, ToolCall, Plan
 
 class Executor:
     def __init__(self):
@@ -72,6 +72,13 @@ class Executor:
                 if not success and not task.stderr:
                     task.stderr = f"Tool call {task.tool_name} failed"
                 return success
+            
+            # If this is a Plan, mark it for replanning
+            if isinstance(task, Plan):
+                task.status = "replan"
+                task.stdout = f"Requesting replan for task: {task.name}"
+                print(f"🔄 Plan task requires replanning: {task.name}")
+                return False  # Return False to trigger retry mechanism
             
             # Handle screen verification tasks
             if hasattr(task, 'verify_screen_change') and task.verify_screen_change:

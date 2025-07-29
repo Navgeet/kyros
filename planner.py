@@ -4,6 +4,7 @@ import base64
 import pyautogui
 from typing import Dict, List, Any
 from io import BytesIO
+from logger import planner_logger
 
 class Task:
     def __init__(self, name: str, verify_screen_change: bool = False):
@@ -53,6 +54,19 @@ class ToolCall(Task):
             'stderr': self.stderr
         }
 
+class Plan(Task):
+    def __init__(self):
+        super().__init__("plan")
+    
+    def to_dict(self):
+        return {
+            'type': 'plan',
+            'name': self.name,
+            'status': self.status,
+            'stdout': self.stdout,
+            'stderr': self.stderr
+        }
+
 
 class Planner:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
@@ -68,10 +82,16 @@ class Planner:
                 print(f"Retrying plan generation (attempt {attempt + 1}/{max_retries})...")
             
             plan = self._generate_single_plan(user_input, conversation_history, screen_context)
+            print('Generated Plan:\n')
+            print(plan)
             
             # Validation disabled for now
             tasks = []
-            exec(plan, {'Task': Task, 'ToolCall': ToolCall, 'tasks': tasks})
+            try:
+                exec(plan, {'Task': Task, 'ToolCall': ToolCall, 'Plan': Plan, 'tasks': tasks})
+            except Exception as e:
+                print(f"Error executing plan: {e}")
+                print(f"Plan content: {plan}")
             return tasks
             
             if attempt == max_retries - 1:
@@ -95,7 +115,7 @@ Analyze the current screen image and describe:
 3. Current state of the desktop/applications
 4. Any relevant context that would be useful for task planning
 
-Provide a concise but detailed description of what you see.
+Provide a concise description of what you see.
 """
         
         try:
@@ -112,7 +132,7 @@ Provide a concise but detailed description of what you see.
             if response.status_code == 200:
                 result = response.json()
                 context = result.get('response', '')
-                print(f"📄 Screen context: {context[:100]}...")
+                print(f"📄 Screen context: {context}")
                 return context
         except Exception as e:
             print(f"Error generating screen context: {e}")
@@ -120,24 +140,26 @@ Provide a concise but detailed description of what you see.
         return "Screen context unavailable"
     
     def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None, screen_context: str = "") -> str:
-        # Add conversation history and screen context as context if available
-        context_section = ""
-        if conversation_history:
-            history_json = json.dumps(conversation_history, indent=2)
-            context_section += f"""
+        try:
+
+            # Add conversation history and screen context as context if available
+            context_section = ""
+            if conversation_history:
+                history_json = json.dumps(conversation_history, indent=2)
+                context_section += f"""
 <History>
 {history_json}
 </History>
 """
         
-        if screen_context:
-            context_section += f"""
+            if screen_context:
+                context_section += f"""
 <ScreenContext>
 {screen_context}
 </ScreenContext>
 """
 
-        prompt = f"""
+            prompt = f"""
 <Instruction>
 You are a task planner. Given a user request and screen context, generate tasks to accomplish it. Return the python code only.{context_section}
 
@@ -159,6 +181,24 @@ tasks.append(a) # this is important
 </Output>
 </Example>
 
+<Example>
+<Input>click on the search box</Input>
+<Output>
+a = Task("click on the search box")
+b = ToolCall("query_screen", {{"query": "where is the search box?"}})
+a.addSubtasks(b)
+c = Plan()
+b.addSubtasks(c)
+
+tasks.append(a) # this is important
+</Output>
+<Explain>
+Since we need to click on the search box, we first locate it on the screen using `query_screen`.
+But since we don't know the exact output of `query_screen`, we create a Plan task to handle it.
+On the next iteration, the agent will analyze the output of `query_screen` and create a task to click on the search box. 
+</Explain>
+</Example>
+
 <Tools>
 **Math Operations**
 - add(a, b): Add two integers
@@ -170,8 +210,9 @@ tasks.append(a) # this is important
 - type(text): Type text
 
 **Screen**
-- screenshot(name): Take a screenshot and save with given name
-- compare_screenshots(before, after): Compare two screenshots to detect changes
+- query_screen(prompt): Ask questions about the screen. Examples:
+    - where is the input field for email?
+    - Does the button "Submit" exist on the screen?
 
 **Window management**
 - focus_window(name): Find and focus a window by name
@@ -182,6 +223,8 @@ tasks.append(a) # this is important
 
 <Rules>
 1. If a task changes the screen (like opening an app, running a command), then it should be initialized with `verify_screen_change=True`
+2. If a tool returns some output that should be further analyzed, then create a Plan task after the tool call and add it as a subtask.
+3. Don't add any subtasks that depend on output of Plan task, they will be created when that Plan task is executed. 
 </Rules>
 </Instruction>
 <UserInput>
@@ -189,7 +232,6 @@ tasks.append(a) # this is important
 </UserInput>
 """
         
-        try:
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
                 json={
@@ -215,6 +257,8 @@ tasks.append(a) # this is important
                 
         except Exception as e:
             print(f"Error calling Ollama: {e}")
+            planner_logger.error(f"Error calling Ollama: {e}", exc_info=True)
+            raise
     
     def validate_plan(self, plan: str, user_input: str) -> bool:
         """Validate if the generated plan follows the rules and accomplishes the user request."""

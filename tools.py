@@ -2,6 +2,9 @@ import pyautogui
 import subprocess
 import time
 import os
+import requests
+import json
+import base64
 from typing import Dict, Any
 from PIL import Image
 import hashlib
@@ -168,3 +171,44 @@ class Tools:
                 task.stderr = error_msg
             print(error_msg)
             return False
+    
+    @staticmethod
+    def query_screen(prompt: str) -> str:
+        """Ask questions about the screen using a vision model."""
+        try:
+            # Take a screenshot
+            screenshot = pyautogui.screenshot()
+            
+            # Convert screenshot to base64
+            import io
+            img_buffer = io.BytesIO()
+            screenshot.save(img_buffer, format='PNG')
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+            
+            # Prepare the request to Ollama
+            ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+            api_url = f"{ollama_url}/api/generate"
+            
+            payload = {
+                "model": "qwen2.5vl:7b",
+                "prompt": prompt,
+                "images": [img_base64],
+                "stream": False
+            }
+            
+            response = requests.post(api_url, json=payload)
+            
+            if response.status_code == 200:
+                result = response.json()
+                answer = result.get('response', '').strip()
+                print(f"Vision model response: {answer}")
+                return answer
+            else:
+                error_msg = f"Ollama API error: {response.status_code} - {response.text}"
+                print(error_msg)
+                return json.dumps({"error": error_msg})
+                
+        except Exception as e:
+            error_msg = f"Error in query_screen: {e}"
+            print(error_msg)
+            return json.dumps({"error": error_msg})

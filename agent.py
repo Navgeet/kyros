@@ -2,7 +2,7 @@
 
 import argparse
 import asyncio
-from planner import Planner
+from planner import Planner, Plan
 from executor import Executor
 from utils import input
 from logger import agent_logger, get_session_logger
@@ -74,11 +74,21 @@ class AIAgent:
                 self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
                 return True
             else:
-                agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
-                self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
-                print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
+                # Check if any task has replan status (Plan task encountered)
+                replan_task = self._find_replan_task(tasks)
+                if replan_task:
+                    agent_logger.info(f"Plan task detected, replanning with original user input")
+                    self.session_logger.info(f"REPLAN: Using original user input for Plan task")
+                    print(f"🔄 Plan task detected, replanning with original user input")
+                    # Continue with original user_input for next iteration
+                else:
+                    agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
+                    self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
+                    print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
+                
                 if attempt < max_retries - 1:
-                    print("🔄 Going back to planning...")
+                    if not replan_task:
+                        print("🔄 Going back to planning...")
                     previous_tasks = tasks  # Pass failed tasks as context
                     print()
         
@@ -89,6 +99,20 @@ class AIAgent:
         if previous_tasks:
             self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in previous_tasks]})
         return False
+    
+    def _find_replan_task(self, tasks):
+        """Find a task with replan status (Plan task that needs replanning)."""
+        def search_tasks(task_list):
+            for task in task_list:
+                if hasattr(task, 'status') and task.status == "replan" and isinstance(task, Plan):
+                    return task
+                if task.subtasks:
+                    result = search_tasks(task.subtasks)
+                    if result:
+                        return result
+            return None
+        
+        return search_tasks(tasks)
     
     def _print_tasks(self, tasks, indent=0):
         """Print tasks with their subtasks in a hierarchical format."""
@@ -148,6 +172,10 @@ def main():
                        help='Ollama server URL')
     
     args = parser.parse_args()
+    
+    # Set OLLAMA_URL environment variable for tools
+    import os
+    os.environ["OLLAMA_URL"] = args.ollama_url
     
     agent = AIAgent(args.ollama_url)
     
