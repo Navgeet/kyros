@@ -30,7 +30,7 @@ class AIAgent:
         # Add user message to conversation history
         self.conversation_history.append({"from": "user", "message": user_input})
 
-        previous_tasks = None
+        # previous_tasks = None
         
         for attempt in range(max_retries):
             if attempt > 0:
@@ -75,29 +75,30 @@ class AIAgent:
                 return True
             else:
                 # Check if any task has replan status (Plan task encountered)
-                replan_task = self._find_replan_task(tasks)
-                if replan_task:
-                    agent_logger.info(f"Plan task detected, replanning with original user input")
-                    self.session_logger.info(f"REPLAN: Using original user input for Plan task")
-                    print(f"🔄 Plan task detected, replanning with original user input")
-                    # Continue with original user_input for next iteration
-                else:
-                    agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
-                    self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
-                    print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
+                # replan_task = self._find_replan_task(tasks)
+                # if replan_task:
+                #     agent_logger.info(f"Plan task detected, replanning with original user input")
+                #     self.session_logger.info(f"REPLAN: Using original user input for Plan task")
+                #     print(f"🔄 Plan task detected, replanning with original user input")
+                #     # Continue with original user_input for next iteration
+                # else:
+                #     agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
+                #     self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
+                #     print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
                 
                 if attempt < max_retries - 1:
-                    if not replan_task:
-                        print("🔄 Going back to planning...")
-                    previous_tasks = tasks  # Pass failed tasks as context
+                    # if not replan_task:
+                    print("🔄 Going back to planning...")
+                    self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
+                    # previous_tasks = tasks  # Pass failed tasks as context
                     print()
         
         agent_logger.error("Task failed after all retry attempts")
         self.session_logger.error("FINAL FAILURE: Task failed after all retry attempts")
         print("❌ Task failed after all retry attempts!")
         # Add failed plan to conversation history
-        if previous_tasks:
-            self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in previous_tasks]})
+        # if previous_tasks:
+        #     self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in previous_tasks]})
         return False
     
     def _find_replan_task(self, tasks):

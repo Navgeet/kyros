@@ -173,7 +173,7 @@ class Tools:
             return False
     
     @staticmethod
-    def query_screen(prompt: str) -> str:
+    def query_screen(query: str, task=None) -> str:
         """Ask questions about the screen using a vision model."""
         try:
             # Take a screenshot
@@ -191,7 +191,7 @@ class Tools:
             
             payload = {
                 "model": "qwen2.5vl:7b",
-                "prompt": prompt,
+                "prompt": query,
                 "images": [img_base64],
                 "stream": False
             }
@@ -202,13 +202,30 @@ class Tools:
                 result = response.json()
                 answer = result.get('response', '').strip()
                 print(f"Vision model response: {answer}")
+                
+                # Attach output to task if provided
+                if task:
+                    task.stdout = answer
+                
                 return answer
             else:
                 error_msg = f"Ollama API error: {response.status_code} - {response.text}"
                 print(error_msg)
-                return json.dumps({"error": error_msg})
+                error_response = json.dumps({"error": error_msg})
+                
+                # Attach error to task if provided
+                if task:
+                    task.stderr = error_msg
+                
+                return error_response
                 
         except Exception as e:
             error_msg = f"Error in query_screen: {e}"
             print(error_msg)
-            return json.dumps({"error": error_msg})
+            error_response = json.dumps({"error": error_msg})
+            
+            # Attach error to task if provided
+            if task:
+                task.stderr = error_msg
+            
+            return error_response

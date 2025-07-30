@@ -76,8 +76,8 @@ class Executor:
             # If this is a Plan, mark it for replanning
             if isinstance(task, Plan):
                 task.status = "replan"
-                task.stdout = f"Requesting replan for task: {task.name}"
-                print(f"🔄 Plan task requires replanning: {task.name}")
+                task.stdout = f"Need to replan using tool call output"
+                print(f"🔄 Plan task requires replanning")
                 return False  # Return False to trigger retry mechanism
             
             # Handle screen verification tasks
@@ -111,8 +111,8 @@ class Executor:
         if hasattr(self.tools, tool_call.tool_name):
             method = getattr(self.tools, tool_call.tool_name)
             try:
-                # Special handling for run_shell_command to pass task for output capture
-                if tool_call.tool_name == "run_shell_command":
+                # Special handling for tools that need task for output capture
+                if tool_call.tool_name in ["run_shell_command", "query_screen"]:
                     result = method(task=tool_call, **tool_call.params)
                 else:
                     result = method(**tool_call.params)

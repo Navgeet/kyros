@@ -185,10 +185,9 @@ tasks.append(a) # this is important
 <Input>click on the search box</Input>
 <Output>
 a = Task("click on the search box")
-b = ToolCall("query_screen", {{"query": "where is the search box?"}})
-a.addSubtasks(b)
+b = ToolCall("query_screen", {{"query": "return coordinates for the search box"}})
 c = Plan()
-b.addSubtasks(c)
+a.addSubtasks(b, c)
 
 tasks.append(a) # this is important
 </Output>
@@ -210,8 +209,8 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 - type(text): Type text
 
 **Screen**
-- query_screen(prompt): Ask questions about the screen. Examples:
-    - where is the input field for email?
+- query_screen(query): Ask questions about the screen. Examples:
+    - return coordinates for the input field for email
     - Does the button "Submit" exist on the screen?
 
 **Window management**
@@ -224,7 +223,8 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 <Rules>
 1. If a task changes the screen (like opening an app, running a command), then it should be initialized with `verify_screen_change=True`
 2. If a tool returns some output that should be further analyzed, then create a Plan task after the tool call and add it as a subtask.
-3. Don't add any subtasks that depend on output of Plan task, they will be created when that Plan task is executed. 
+3. Don't add any subtasks after a Plan task, they will be created when that Plan task is executed.
+4. A tool call cannot have subtasks.
 </Rules>
 </Instruction>
 <UserInput>
