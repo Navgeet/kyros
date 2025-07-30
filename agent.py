@@ -70,8 +70,9 @@ class AIAgent:
                 agent_logger.info("Task completed successfully")
                 self.session_logger.info("SUCCESS: Task completed successfully")
                 print("🎉 Task completed successfully!")
-                # Add successful plan to conversation history
-                self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
+                # Add successful plan to conversation history (filter out Plan tasks)
+                filtered_tasks = self._filter_plan_tasks(tasks)
+                self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in filtered_tasks]})
                 return True
             else:
                 # Check if any task has replan status (Plan task encountered)
@@ -89,7 +90,9 @@ class AIAgent:
                 if attempt < max_retries - 1:
                     # if not replan_task:
                     print("🔄 Going back to planning...")
-                    self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
+                    # Filter out Plan tasks from conversation history
+                    filtered_tasks = self._filter_plan_tasks(tasks)
+                    self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in filtered_tasks]})
                     # previous_tasks = tasks  # Pass failed tasks as context
                     print()
         
@@ -114,6 +117,27 @@ class AIAgent:
             return None
         
         return search_tasks(tasks)
+    
+    def _filter_plan_tasks(self, tasks):
+        """Remove Plan tasks from task hierarchy before adding to conversation history."""
+        filtered_tasks = []
+        
+        for task in tasks:
+            # Skip Plan tasks
+            if isinstance(task, Plan):
+                continue
+            
+            # Create a copy of the task and filter its subtasks recursively
+            filtered_task = task.__class__.__dict__.copy() if hasattr(task, '__class__') else task
+            filtered_task = type(task).__new__(type(task))
+            filtered_task.__dict__.update(task.__dict__)
+            
+            if task.subtasks:
+                filtered_task.subtasks = self._filter_plan_tasks(task.subtasks)
+            
+            filtered_tasks.append(filtered_task)
+        
+        return filtered_tasks
     
     def _print_tasks(self, tasks, indent=0):
         """Print tasks with their subtasks in a hierarchical format."""
