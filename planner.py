@@ -72,10 +72,14 @@ class Planner:
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.ollama_url = ollama_url
     
-    def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None) -> List[Task]:
-        # First generate screen context
-        print("🔍 Analyzing screen...")
-        screen_context = self._generate_screen_context()
+    def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None, regenerate_screen_context: bool = True) -> List[Task]:
+        # Generate screen context only if requested (not during replanning)
+        screen_context = ""
+        if regenerate_screen_context:
+            print("🔍 Analyzing screen...")
+            screen_context = self._generate_screen_context()
+        else:
+            print("🔄 Replanning without regenerating screen context...")
 
         for attempt in range(max_retries):
             if attempt > 0:

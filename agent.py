@@ -43,7 +43,9 @@ class AIAgent:
             agent_logger.info("Starting planning phase")
             self.session_logger.info("PLANNING: Starting plan generation")
             print("🧠 Planning...")
-            tasks = self.planner.generate_plan(user_input, conversation_history=self.conversation_history)
+            # Don't regenerate screen context when replanning (attempt > 0)
+            is_replanning = attempt > 0
+            tasks = self.planner.generate_plan(user_input, conversation_history=self.conversation_history, regenerate_screen_context=not is_replanning)
             
             if not tasks:
                 agent_logger.warning("Failed to generate plan")
