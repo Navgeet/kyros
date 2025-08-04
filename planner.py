@@ -165,7 +165,13 @@ Provide a concise description of what you see.
 
             prompt = f"""
 <Instruction>
-You are a task planner. Given a user request and screen context, generate tasks to accomplish it. Return the python code only.{context_section}
+You are a task planner, you perform the following tasks:
+PLAN: Given a user request and screen context, generate tasks to accomplish it.
+    If you cannot complete a task, create `Task` nodes for some steps and then create a `Plan` node to plan further.
+REPLAN: given previous executed tasks, followed by a Plan task, then create a new plan for remaining tasks.
+Return the python code only.
+
+{context_section}
 
 <Example>
 <Input>search google for restaurants near me</Input>
@@ -199,6 +205,30 @@ tasks.append(a) # this is important
 Since we need to click on the search box, we first locate it on the screen using `query_screen`.
 But since we don't know the exact output of `query_screen`, we create a Plan task to handle it.
 On the next iteration, the agent will analyze the output of `query_screen` and create a task to click on the search box. 
+</Explain>
+</Example>
+
+<Example>
+<Input>click on the search box</Input>
+<Context>
+task: click on the search box
+|_query_screen: return coordinates for the search box. stdout: "some text ... {{"bbox_2d": [200, 300, 400, 500], "label": "search_box"}} ... some text"
+|_plan
+</Context>
+<Output>
+a = Task("click on the search box").done()
+b = ToolCall("query_screen", {{"query": "return coordinates for the search box"}}).done()
+c = Plan().done()
+d = Task("click on the search box at coordinates", verify_screen_change=True)
+e = ToolCall("click", {{"x": 300, "y": 400}})
+a.addSubtasks(b, c, d)
+
+tasks.append(a) # this is important
+</Output>
+<Explain>
+We have an incomplete task to click on the search box, and we have a `query_screen` tool call that returned coordinates.
+We create a new task to click on the search box at those coordinates, and add a tool call to perform the click.
+The `done()` method indicates that the task is already completed, so we don't need to execute it again.
 </Explain>
 </Example>
 

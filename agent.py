@@ -73,8 +73,8 @@ class AIAgent:
                 self.session_logger.info("SUCCESS: Task completed successfully")
                 print("🎉 Task completed successfully!")
                 # Add successful plan to conversation history (filter out Plan tasks)
-                filtered_tasks = self._filter_plan_tasks(tasks)
-                self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in filtered_tasks]})
+                # filtered_tasks = self._filter_plan_tasks(tasks)
+                self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
                 return True
             else:
                 # Check if any task has replan status (Plan task encountered)
@@ -93,8 +93,8 @@ class AIAgent:
                     # if not replan_task:
                     print("🔄 Going back to planning...")
                     # Filter out Plan tasks from conversation history
-                    filtered_tasks = self._filter_plan_tasks(tasks)
-                    self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in filtered_tasks]})
+                    # filtered_tasks = self._filter_plan_tasks(tasks)
+                    self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
                     # previous_tasks = tasks  # Pass failed tasks as context
                     print()
         
