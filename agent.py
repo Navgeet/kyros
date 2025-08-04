@@ -45,57 +45,56 @@ class AIAgent:
             print("🧠 Planning...")
             # Don't regenerate screen context when replanning (attempt > 0)
             is_replanning = attempt > 0
-            tasks = self.planner.generate_plan(user_input, conversation_history=self.conversation_history, regenerate_screen_context=not is_replanning)
+            plan = self.planner.generate_plan(user_input, conversation_history=self.conversation_history, regenerate_screen_context=not is_replanning)
             
-            if not tasks:
+            if not plan or not plan.get('tasks'):
                 agent_logger.warning("Failed to generate plan")
                 self.session_logger.warning("PLANNING: Failed to generate plan")
                 print("❌ Failed to generate plan!")
                 continue
             
             # Log the generated plan
-            plan_summary = [task.name for task in tasks]
-            agent_logger.info(f"Generated plan with {len(tasks)} tasks: {plan_summary}")
-            self.session_logger.info(f"PLAN GENERATED: {len(tasks)} tasks - {plan_summary}")
+            task_names = [task.get('name', f"Task {task.get('id', 'unknown')}") for task in plan.get('tasks', [])]
+            agent_logger.info(f"Generated plan with {len(plan.get('tasks', []))} tasks: {task_names}")
+            self.session_logger.info(f"PLAN GENERATED: {len(plan.get('tasks', []))} tasks - {task_names}")
             
             print("📋 Generated plan:")
-            self._print_tasks(tasks)
+            self._print_json_plan(plan)
             print()
             
             # Execute phase
             agent_logger.info("Starting execution phase")
             self.session_logger.info("EXECUTION: Starting plan execution")
             print("⚙️  Executing...")
-            success = self.executor.execute_plan(tasks)
+            success = self.executor.execute_plan(plan)
             
             if success:
                 agent_logger.info("Task completed successfully")
                 self.session_logger.info("SUCCESS: Task completed successfully")
                 print("🎉 Task completed successfully!")
-                # Add successful plan to conversation history (filter out Plan tasks)
-                # filtered_tasks = self._filter_plan_tasks(tasks)
-                self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
+                # Add successful plan to conversation history
+                self.conversation_history.append({"from": "system", "plan": plan})
                 return True
             else:
                 # Check if any task has replan status (Plan task encountered)
-                # replan_task = self._find_replan_task(tasks)
-                # if replan_task:
-                #     agent_logger.info(f"Plan task detected, replanning with original user input")
-                #     self.session_logger.info(f"REPLAN: Using original user input for Plan task")
-                #     print(f"🔄 Plan task detected, replanning with original user input")
-                #     # Continue with original user_input for next iteration
-                # else:
-                #     agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
-                #     self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
-                #     print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
+                replan_task = self._find_replan_task(plan)
+                if replan_task:
+                    agent_logger.info(f"Plan task detected, replanning with original user input")
+                    self.session_logger.info(f"REPLAN: Using original user input for Plan task")
+                    print(f"🔄 Plan task detected, replanning...")
+                    # Continue with original user_input for next iteration
+                else:
+                    agent_logger.warning(f"Task execution failed (attempt {attempt + 1}/{max_retries})")
+                    self.session_logger.warning(f"EXECUTION FAILED: Attempt {attempt + 1}/{max_retries}")
+                    print(f"❌ Task execution failed (attempt {attempt + 1}/{max_retries})")
                 
                 if attempt < max_retries - 1:
-                    # if not replan_task:
-                    print("🔄 Going back to planning...")
-                    # Filter out Plan tasks from conversation history
-                    # filtered_tasks = self._filter_plan_tasks(tasks)
-                    self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in tasks]})
-                    # previous_tasks = tasks  # Pass failed tasks as context
+                    if replan_task:
+                        print("🔄 Going back to planning for replanning...")
+                    else:
+                        print("🔄 Going back to planning...")
+                    # Add plan with status info to conversation history
+                    self.conversation_history.append({"from": "system", "plan": plan})
                     print()
         
         agent_logger.error("Task failed after all retry attempts")
@@ -106,19 +105,35 @@ class AIAgent:
         #     self.conversation_history.append({"from": "system", "plan": [task.to_dict() for task in previous_tasks]})
         return False
     
-    def _find_replan_task(self, tasks):
+    def _find_replan_task(self, plan):
         """Find a task with replan status (Plan task that needs replanning)."""
-        def search_tasks(task_list):
+        def search_tasks(task_list, task_lookup):
             for task in task_list:
-                if hasattr(task, 'status') and task.status == "replan" and isinstance(task, Plan):
+                if task.get('status') == "replan":
                     return task
-                if task.subtasks:
-                    result = search_tasks(task.subtasks)
+                
+                # Recursively search subtasks
+                subtask_ids = task.get('subtasks', [])
+                if subtask_ids:
+                    subtasks = [task_lookup.get(sid) for sid in subtask_ids if sid in task_lookup]
+                    result = search_tasks(subtasks, task_lookup)
                     if result:
                         return result
             return None
         
-        return search_tasks(tasks)
+        tasks = plan.get('tasks', [])
+        # Create lookup table for task references
+        task_lookup = {task.get('id', i): task for i, task in enumerate(tasks)}
+        
+        # Find top-level tasks (not referenced as subtasks)
+        subtask_ids = set()
+        for task in tasks:
+            for subtask_id in task.get('subtasks', []):
+                subtask_ids.add(subtask_id)
+        
+        top_level_tasks = [task for task in tasks if task.get('id', 0) not in subtask_ids]
+        
+        return search_tasks(top_level_tasks, task_lookup)
     
     def _filter_plan_tasks(self, tasks):
         """Remove Plan tasks from task hierarchy before adding to conversation history."""
@@ -141,19 +156,44 @@ class AIAgent:
         
         return filtered_tasks
     
-    def _print_tasks(self, tasks, indent=0):
-        """Print tasks with their subtasks in a hierarchical format."""
-        for task in tasks:
+    def _print_json_plan(self, plan):
+        """Print JSON plans with their subtasks in a hierarchical format."""
+        # Create a lookup table for task references
+        task_lookup = {task.get('id', i): task for i, task in enumerate(plan.get('tasks', []))}
+        
+        # Find top-level tasks (not referenced as subtasks)
+        subtask_ids = set()
+        for task in plan.get('tasks', []):
+            for subtask_id in task.get('subtasks', []):
+                subtask_ids.add(subtask_id)
+        
+        top_level_tasks = [task for task in plan.get('tasks', []) if task.get('id', 0) not in subtask_ids]
+        
+        def print_task(task, indent=0):
             prefix = "  " * indent
+            task_name = task.get('name', f"Task {task.get('id', 'unknown')}")
+            
+            # Show dependencies
             deps_str = ""
-            if task.dependencies:
-                dep_names = [dep.name for dep in task.dependencies]
-                deps_str = f" (depends on: {', '.join(dep_names)})"
+            if task.get('dependencies'):
+                dep_names = []
+                for dep_id in task.get('dependencies', []):
+                    dep_task = task_lookup.get(dep_id)
+                    if dep_task:
+                        dep_names.append(dep_task.get('name', f"Task {dep_id}"))
+                if dep_names:
+                    deps_str = f" (depends on: {', '.join(dep_names)})"
             
-            print(f"{prefix}{task.name}{deps_str}")
+            print(f"{prefix}{task_name}{deps_str}")
             
-            if task.subtasks:
-                self._print_tasks(task.subtasks, indent + 1)
+            # Print subtasks
+            for subtask_id in task.get('subtasks', []):
+                subtask = task_lookup.get(subtask_id)
+                if subtask:
+                    print_task(subtask, indent + 1)
+        
+        for task in top_level_tasks:
+            print_task(task)
     
     async def run_interactive(self):
         """Run the agent in interactive mode - continuous loop."""

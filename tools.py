@@ -142,15 +142,30 @@ class Tools:
             return False
     
     @staticmethod
+    def _set_task_output(task, stdout=None, stderr=None):
+        """Helper method to set task output for both Task objects and JSON dicts."""
+        if task:
+            if isinstance(task, dict):
+                # JSON task
+                if stdout is not None:
+                    task['stdout'] = stdout
+                if stderr is not None:
+                    task['stderr'] = stderr
+            else:
+                # Task object
+                if stdout is not None:
+                    task.stdout = stdout
+                if stderr is not None:
+                    task.stderr = stderr
+
+    @staticmethod
     def run_shell_command(args: str, task=None) -> bool:
         """Runs a shell command with the given arguments."""
         try:
             result = subprocess.run(args, shell=True, capture_output=True, text=True, timeout=30)
             
             # Capture output in task if provided
-            if task:
-                task.stdout = result.stdout
-                task.stderr = result.stderr
+            Tools._set_task_output(task, stdout=result.stdout, stderr=result.stderr)
             
             if result.stdout:
                 print(f"Output: {result.stdout}")
@@ -161,14 +176,12 @@ class Tools:
             
         except subprocess.TimeoutExpired:
             error_msg = "Command timed out after 30 seconds"
-            if task:
-                task.stderr = error_msg
+            Tools._set_task_output(task, stderr=error_msg)
             print(error_msg)
             return False
         except Exception as e:
             error_msg = f"Error running shell command: {e}"
-            if task:
-                task.stderr = error_msg
+            Tools._set_task_output(task, stderr=error_msg)
             print(error_msg)
             return False
     
@@ -204,8 +217,7 @@ class Tools:
                 print(f"Vision model response: {answer}")
                 
                 # Attach output to task if provided
-                if task:
-                    task.stdout = answer
+                Tools._set_task_output(task, stdout=answer)
                 
                 return answer
             else:
@@ -214,8 +226,7 @@ class Tools:
                 error_response = json.dumps({"error": error_msg})
                 
                 # Attach error to task if provided
-                if task:
-                    task.stderr = error_msg
+                Tools._set_task_output(task, stderr=error_msg)
                 
                 return error_response
                 
@@ -225,7 +236,6 @@ class Tools:
             error_response = json.dumps({"error": error_msg})
             
             # Attach error to task if provided
-            if task:
-                task.stderr = error_msg
+            Tools._set_task_output(task, stderr=error_msg)
             
             return error_response

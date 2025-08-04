@@ -61,10 +61,7 @@ class Plan(Task):
     def to_dict(self):
         return {
             'type': 'plan',
-            'name': self.name,
             'status': self.status,
-            'stdout': self.stdout,
-            'stderr': self.stderr
         }
 
 
@@ -72,12 +69,12 @@ class Planner:
     """Task planner that generates JSON task representations using LLM.
     
     Generates task hierarchies as JSON instead of Python code for better 
-    reliability and easier debugging. The JSON is parsed back into Task objects.
+    reliability and easier debugging. The JSON is passed directly to the executor.
     """
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.ollama_url = ollama_url
     
-    def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None, regenerate_screen_context: bool = True) -> List[Task]:
+    def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None, regenerate_screen_context: bool = True) -> Dict:
         # Generate screen context only if requested (not during replanning)
         screen_context = ""
         if regenerate_screen_context:
@@ -95,16 +92,16 @@ class Planner:
             print(plan_json)
             
             try:
-                tasks = self._parse_json_plan(plan_json)
-                return tasks
+                parsed_plan = self._parse_json_plan_to_dict(plan_json)
+                return parsed_plan
             except Exception as e:
                 print(f"Error parsing plan JSON: {e}")
                 print(f"Plan content: {plan_json}")
                 if attempt == max_retries - 1:
                     print("Max retries reached - plan generation failed")
-                    return []
+                    return {}
         
-        return []
+        return {}
     
     def _generate_screen_context(self) -> str:
         """Generate screen context using vision model."""
@@ -145,8 +142,8 @@ Provide a concise description of what you see.
         
         return "Screen context unavailable"
     
-    def _parse_json_plan(self, plan_json: str) -> List[Task]:
-        """Parse JSON plan response and convert to Task objects."""
+    def _parse_json_plan_to_dict(self, plan_json: str) -> Dict:
+        """Parse JSON plan response and return as dictionary."""
         try:
             # Extract JSON from response if it's wrapped in code blocks
             if '```json' in plan_json:
@@ -155,65 +152,13 @@ Provide a concise description of what you see.
                 plan_json = plan_json.split('```')[1].split('```')[0].strip()
             
             plan_data = json.loads(plan_json)
-            
-            # Create lookup table for task references
-            task_lookup = {}
-            all_tasks = []
-            
-            # First pass: create all tasks
-            for task_data in plan_data.get('tasks', []):
-                task = self._create_task_from_dict(task_data)
-                task_lookup[task_data.get('id', len(task_lookup))] = task
-                all_tasks.append(task)
-            
-            # Second pass: establish relationships (subtasks and dependencies)
-            for i, task_data in enumerate(plan_data.get('tasks', [])):
-                task = all_tasks[i]
-                
-                # Add subtasks
-                for subtask_ref in task_data.get('subtasks', []):
-                    if isinstance(subtask_ref, int) and subtask_ref in task_lookup:
-                        task.subtasks.append(task_lookup[subtask_ref])
-                
-                # Add dependencies
-                for dep_ref in task_data.get('dependencies', []):
-                    if isinstance(dep_ref, int) and dep_ref in task_lookup:
-                        task.dependencies.append(task_lookup[dep_ref])
-            
-            # Return only top-level tasks (tasks that are not subtasks of other tasks)
-            subtask_ids = set()
-            for task_data in plan_data.get('tasks', []):
-                for subtask_id in task_data.get('subtasks', []):
-                    subtask_ids.add(subtask_id)
-            
-            top_level_tasks = []
-            for i, task_data in enumerate(plan_data.get('tasks', [])):
-                if task_data.get('id', i) not in subtask_ids:
-                    top_level_tasks.append(all_tasks[i])
-            
-            return top_level_tasks
+            return plan_data
             
         except json.JSONDecodeError as e:
             raise Exception(f"Invalid JSON format: {e}")
         except Exception as e:
             raise Exception(f"Error parsing plan: {e}")
     
-    def _create_task_from_dict(self, task_data: Dict) -> Task:
-        """Create a Task object from dictionary data."""
-        task_type = task_data.get('type', 'task')
-        
-        if task_type == 'tool_call':
-            return ToolCall(
-                tool_name=task_data['tool_name'],
-                params=task_data['params']
-            )
-        elif task_type == 'plan':
-            return Plan()
-        else:
-            return Task(
-                name=task_data['name'],
-                verify_screen_change=task_data.get('verify_screen_change', False)
-            )
     
     def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None, screen_context: str = "") -> str:
         try:
@@ -239,12 +184,15 @@ Provide a concise description of what you see.
 <Instruction>
 You are a task planner, you perform the following tasks:
 PLAN: Given a user request and screen context, generate tasks to accomplish it.
-    If you cannot complete a task, create `Task` nodes for some steps and then create a `Plan` node to plan further.
-REPLAN: given previous executed tasks, followed by a Plan task, then create a new plan for remaining tasks.
+    If you cannot complete a task, create `Task` nodes for some steps and then create a `Plan` node to trigger replanning.
+REPLAN: given previous executed tasks, 
+    analyze the output and create new tasks to accomplish the user request.
+    If you cannot complete a task, create `Task` nodes for some steps and then create a `Plan` node to trigger replanning.
 Return the JSON representation of tasks only.
 
 {context_section}
 
+<Examples>
 <Example>
 <Input>search google for restaurants near me</Input>
 <Output>
@@ -320,7 +268,6 @@ Return the JSON representation of tasks only.
 ```
 </Output>
 </Example>
-
 <Example>
 <Input>click on the search box</Input>
 <Output>
@@ -345,11 +292,7 @@ Return the JSON representation of tasks only.
     }},
     {{
       "id": 2,
-      "type": "plan",
-      "name": "plan",
-      "subtasks": [], 
-      "dependencies": []
-    }}
+      "type": "plan"    }}
   ]
 }}
 ```
@@ -360,6 +303,7 @@ But since we don't know the exact output of `query_screen`, we create a Plan tas
 On the next iteration, the agent will analyze the output of `query_screen` and create a task to click on the search box.
 </Explain>
 </Example>
+</Examples>
 
 <Tools>
 **Math Operations**
@@ -398,28 +342,78 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 </UserInput>
 """
         
+
+            # print prompt in yellow
+            print(f"\033[93m{prompt}\033[0m")  # Yellow
+            print()
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
                 json={
                     "model": "qwen3:30b-a3b",
                     "prompt": prompt,
-                    "stream": False
-                }
+                    "stream": True
+                },
+                stream=True
             )
             
             if response.status_code == 200:
-                result = response.json()
-                code = result.get('response', '')
+                full_response = ""
+                in_thinking = False
+                thinking_started = False
                 
-                # Extract thinking content
-                thinking_content = ""
-                if '<think>' in code and '</think>' in code:
-                    thinking_content = code.split('<think>')[1].split('</think>')[0].strip()
-                    print("💭 Thinking:")
-                    print(f"\033[90m{thinking_content}\033[0m")  # Grey text
-                    print()
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            chunk = json.loads(line.decode('utf-8'))
+                            token = chunk.get('response', '')
+                            full_response += token
+                            
+                            # Handle thinking content streaming
+                            if not thinking_started and '<think>' in full_response:
+                                print("💭 Thinking:")
+                                thinking_started = True
+                                in_thinking = True
+                                # Find the start of thinking content
+                                think_start = full_response.rfind('<think>') + 7
+                                if len(full_response) > think_start:
+                                    thinking_part = full_response[think_start:]
+                                    if '</think>' in thinking_part:
+                                        # Complete thinking block already available
+                                        thinking_content = thinking_part.split('</think>')[0]
+                                        print(f"\033[90m{thinking_content}\033[0m", end="", flush=True)
+                                        print("\n")  # End thinking section
+                                        in_thinking = False
+                                    else:
+                                        # Partial thinking content - print what we have so far
+                                        print(f"\033[90m{thinking_part}\033[0m", end="", flush=True)
+                            elif in_thinking:
+                                if '</think>' in token:
+                                    # End of thinking - print remaining content before the closing tag
+                                    thinking_part = token.split('</think>')[0]
+                                    if thinking_part:
+                                        print(f"\033[90m{thinking_part}\033[0m", end="", flush=True)
+                                    print("\n")  # End thinking section with newline
+                                    in_thinking = False
+                                else:
+                                    # Continue thinking content - print this token
+                                    print(f"\033[90m{token}\033[0m", end="", flush=True)
+                            
+                            if chunk.get('done', False):
+                                break
+                                
+                        except json.JSONDecodeError:
+                            continue
                 
-                return code.split('</think>')[1].strip()
+                # Extract the final code content (after </think> if present)
+                if '</think>' in full_response:
+                    code = full_response.split('</think>')[1].strip()
+                else:
+                    code = full_response.strip()
+                
+                return code
+            else:
+                print(f"Error: Ollama API returned status {response.status_code}")
+                return ""
                 
         except Exception as e:
             print(f"Error calling Ollama: {e}")
