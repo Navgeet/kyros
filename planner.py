@@ -69,6 +69,11 @@ class Plan(Task):
 
 
 class Planner:
+    """Task planner that generates JSON task representations using LLM.
+    
+    Generates task hierarchies as JSON instead of Python code for better 
+    reliability and easier debugging. The JSON is parsed back into Task objects.
+    """
     def __init__(self, ollama_url: str = "http://localhost:11434"):
         self.ollama_url = ollama_url
     
@@ -85,22 +90,19 @@ class Planner:
             if attempt > 0:
                 print(f"Retrying plan generation (attempt {attempt + 1}/{max_retries})...")
             
-            plan = self._generate_single_plan(user_input, conversation_history, screen_context)
-            print('Generated Plan:\n')
-            print(plan)
+            plan_json = self._generate_single_plan(user_input, conversation_history, screen_context)
+            print('Generated Plan JSON:\n')
+            print(plan_json)
             
-            # Validation disabled for now
-            tasks = []
             try:
-                exec(plan, {'Task': Task, 'ToolCall': ToolCall, 'Plan': Plan, 'tasks': tasks})
+                tasks = self._parse_json_plan(plan_json)
+                return tasks
             except Exception as e:
-                print(f"Error executing plan: {e}")
-                print(f"Plan content: {plan}")
-            return tasks
-            
-            if attempt == max_retries - 1:
-                print("Max retries reached - plan generation failed")
-                return []
+                print(f"Error parsing plan JSON: {e}")
+                print(f"Plan content: {plan_json}")
+                if attempt == max_retries - 1:
+                    print("Max retries reached - plan generation failed")
+                    return []
         
         return []
     
@@ -143,6 +145,76 @@ Provide a concise description of what you see.
         
         return "Screen context unavailable"
     
+    def _parse_json_plan(self, plan_json: str) -> List[Task]:
+        """Parse JSON plan response and convert to Task objects."""
+        try:
+            # Extract JSON from response if it's wrapped in code blocks
+            if '```json' in plan_json:
+                plan_json = plan_json.split('```json')[1].split('```')[0].strip()
+            elif '```' in plan_json:
+                plan_json = plan_json.split('```')[1].split('```')[0].strip()
+            
+            plan_data = json.loads(plan_json)
+            
+            # Create lookup table for task references
+            task_lookup = {}
+            all_tasks = []
+            
+            # First pass: create all tasks
+            for task_data in plan_data.get('tasks', []):
+                task = self._create_task_from_dict(task_data)
+                task_lookup[task_data.get('id', len(task_lookup))] = task
+                all_tasks.append(task)
+            
+            # Second pass: establish relationships (subtasks and dependencies)
+            for i, task_data in enumerate(plan_data.get('tasks', [])):
+                task = all_tasks[i]
+                
+                # Add subtasks
+                for subtask_ref in task_data.get('subtasks', []):
+                    if isinstance(subtask_ref, int) and subtask_ref in task_lookup:
+                        task.subtasks.append(task_lookup[subtask_ref])
+                
+                # Add dependencies
+                for dep_ref in task_data.get('dependencies', []):
+                    if isinstance(dep_ref, int) and dep_ref in task_lookup:
+                        task.dependencies.append(task_lookup[dep_ref])
+            
+            # Return only top-level tasks (tasks that are not subtasks of other tasks)
+            subtask_ids = set()
+            for task_data in plan_data.get('tasks', []):
+                for subtask_id in task_data.get('subtasks', []):
+                    subtask_ids.add(subtask_id)
+            
+            top_level_tasks = []
+            for i, task_data in enumerate(plan_data.get('tasks', [])):
+                if task_data.get('id', i) not in subtask_ids:
+                    top_level_tasks.append(all_tasks[i])
+            
+            return top_level_tasks
+            
+        except json.JSONDecodeError as e:
+            raise Exception(f"Invalid JSON format: {e}")
+        except Exception as e:
+            raise Exception(f"Error parsing plan: {e}")
+    
+    def _create_task_from_dict(self, task_data: Dict) -> Task:
+        """Create a Task object from dictionary data."""
+        task_type = task_data.get('type', 'task')
+        
+        if task_type == 'tool_call':
+            return ToolCall(
+                tool_name=task_data['tool_name'],
+                params=task_data['params']
+            )
+        elif task_type == 'plan':
+            return Plan()
+        else:
+            return Task(
+                name=task_data['name'],
+                verify_screen_change=task_data.get('verify_screen_change', False)
+            )
+    
     def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None, screen_context: str = "") -> str:
         try:
 
@@ -169,66 +241,123 @@ You are a task planner, you perform the following tasks:
 PLAN: Given a user request and screen context, generate tasks to accomplish it.
     If you cannot complete a task, create `Task` nodes for some steps and then create a `Plan` node to plan further.
 REPLAN: given previous executed tasks, followed by a Plan task, then create a new plan for remaining tasks.
-Return the python code only.
+Return the JSON representation of tasks only.
 
 {context_section}
 
 <Example>
 <Input>search google for restaurants near me</Input>
 <Output>
-a = Task("search google for restaurants near me")
-b = Task("focus chrome window", verify_screen_change=True)
-c = Task("open new tab", verify_screen_change=True)
-d = Task("type query and press enter", verify_screen_change=True)
-a.addSubtasks(b, c, d)
-c.depends_on(b)
-d.depends_on(c)
-b.addSubtasks(ToolCall("focus_window", {{"name": "chrome"}}))
-c.addSubtasks(ToolCall("hotkey", {{"keys": "ctrl+t"}}))
-d.addSubtasks(ToolCall("type", {{"text": "restaurants near me"}}), ToolCall("hotkey", {{"keys": "enter"}}))
-
-tasks.append(a) # this is important
+```json
+{{
+  "tasks": [
+    {{
+      "id": 0,
+      "type": "task",
+      "name": "search google for restaurants near me",
+      "verify_screen_change": false,
+      "subtasks": [1, 2, 3],
+      "dependencies": []
+    }},
+    {{
+      "id": 1,
+      "type": "task", 
+      "name": "focus chrome window",
+      "verify_screen_change": true,
+      "subtasks": [4],
+      "dependencies": []
+    }},
+    {{
+      "id": 2,
+      "type": "task",
+      "name": "open new tab", 
+      "verify_screen_change": true,
+      "subtasks": [5],
+      "dependencies": [1]
+    }},
+    {{
+      "id": 3,
+      "type": "task",
+      "name": "type query and press enter",
+      "verify_screen_change": true, 
+      "subtasks": [6, 7],
+      "dependencies": [2]
+    }},
+    {{
+      "id": 4,
+      "type": "tool_call",
+      "tool_name": "focus_window",
+      "params": {{"name": "chrome"}},
+      "subtasks": [],
+      "dependencies": []
+    }},
+    {{
+      "id": 5,
+      "type": "tool_call",
+      "tool_name": "hotkey",
+      "params": {{"keys": "ctrl+t"}},
+      "subtasks": [],
+      "dependencies": []
+    }},
+    {{
+      "id": 6,
+      "type": "tool_call",
+      "tool_name": "type",
+      "params": {{"text": "restaurants near me"}},
+      "subtasks": [],
+      "dependencies": []
+    }},
+    {{
+      "id": 7,
+      "type": "tool_call", 
+      "tool_name": "hotkey",
+      "params": {{"keys": "enter"}},
+      "subtasks": [],
+      "dependencies": []
+    }}
+  ]
+}}
+```
 </Output>
 </Example>
 
 <Example>
 <Input>click on the search box</Input>
 <Output>
-a = Task("click on the search box")
-b = ToolCall("query_screen", {{"query": "return coordinates for the search box"}})
-c = Plan()
-a.addSubtasks(b, c)
-
-tasks.append(a) # this is important
+```json
+{{
+  "tasks": [
+    {{
+      "id": 0,
+      "type": "task",
+      "name": "click on the search box",
+      "verify_screen_change": false,
+      "subtasks": [1, 2],
+      "dependencies": []
+    }},
+    {{
+      "id": 1,
+      "type": "tool_call",
+      "tool_name": "query_screen",
+      "params": {{"query": "return coordinates for the search box"}},
+      "subtasks": [],
+      "dependencies": []
+    }},
+    {{
+      "id": 2,
+      "type": "plan",
+      "name": "plan",
+      "subtasks": [], 
+      "dependencies": []
+    }}
+  ]
+}}
+```
 </Output>
 <Explain>
 Since we need to click on the search box, we first locate it on the screen using `query_screen`.
 But since we don't know the exact output of `query_screen`, we create a Plan task to handle it.
-On the next iteration, the agent will analyze the output of `query_screen` and create a task to click on the search box. 
-</Explain>
-</Example>
-
-<Example>
-<Input>click on the search box</Input>
-<Context>
-task: click on the search box
-|_query_screen: return coordinates for the search box. stdout: "some text ... {{"bbox_2d": [200, 300, 400, 500], "label": "search_box"}} ... some text"
-|_plan
-</Context>
-<Output>
-a = Task("click on the search box").done()
-b = ToolCall("query_screen", {{"query": "return coordinates for the search box"}}).done()
-c = Plan().done()
-d = Task("click on the search box at coordinates", verify_screen_change=True)
-e = ToolCall("click", {{"x": 300, "y": 400}})
-a.addSubtasks(b, c, d)
-
-tasks.append(a) # this is important
-</Output>
-<Explain>
-We have an incomplete task to click on the search box, and we have a `query_screen` tool call that returned coordinates.
-We create a new task to click on the search box at those coordinates, and add a tool call to perform the click.
-The `done()` method indicates that the task is already completed, so we don't need to execute it again.
+On the next iteration, the agent will analyze the output of `query_screen` and create a task to click on the search box.
 </Explain>
 </Example>
 
@@ -255,10 +384,13 @@ The `done()` method indicates that the task is already completed, so we don't ne
 </Tools>
 
 <Rules>
-1. If a task changes the screen (like opening an app, running a command), then it should be initialized with `verify_screen_change=True`
+1. If a task changes the screen (like opening an app, running a command), then it should have `verify_screen_change=true`
 2. If a tool returns some output that should be further analyzed, then create a Plan task after the tool call and add it as a subtask.
 3. Don't add any subtasks after a Plan task, they will be created when that Plan task is executed.
 4. A tool call cannot have subtasks.
+5. Each task must have a unique integer id.
+6. Use task ids to reference subtasks and dependencies (not task names).
+7. Return only valid JSON wrapped in ```json code blocks.
 </Rules>
 </Instruction>
 <UserInput>
@@ -294,20 +426,20 @@ The `done()` method indicates that the task is already completed, so we don't ne
             planner_logger.error(f"Error calling Ollama: {e}", exc_info=True)
             raise
     
-    def validate_plan(self, plan: str, user_input: str) -> bool:
-        """Validate if the generated plan follows the rules and accomplishes the user request."""
+    def validate_plan(self, plan_json: str, user_input: str) -> bool:
+        """Validate if the generated JSON plan follows the rules and accomplishes the user request."""
         
         validation_prompt = f"""
 <Instruction>
-You are a plan validator. Check if the given plan follows these rules and accomplishes the user request:
+You are a plan validator. Check if the given JSON plan follows these rules and accomplishes the user request:
 
 ## Rules to check:
-1. Tasks that modify the UI (like opening an app) should be wrapped in VerifiedTaskUsingScreenChange
+1. Tasks that modify the UI (like opening an app) should have `verify_screen_change=true`
 2. Dependencies should be logical (task B depends on task A if A must complete before B)
-3. All top level tasks should be appended to the global tasks list
-4. The output should be wrapped in ```python and ``` tags
-5. <var>.wrapped_task.addSubtasks(<subtasks>) should only be used for instance of VerifiedTaskUsingScreenChange, not Task
-
+3. Each task must have a unique integer id
+4. Subtasks and dependencies should reference task ids (integers), not names
+5. The JSON should be valid and properly formatted
+6. Tool calls should have correct tool names and parameters
 
 ## Available tools:
 - add(a, b): Add two integers
@@ -315,8 +447,7 @@ You are a plan validator. Check if the given plan follows these rules and accomp
 - click(x, y): Left click at coordinates
 - hotkey(keys): Send keyboard shortcut
 - type(text): Type text
-- screenshot(name): Take a screenshot
-- compare_screenshots(before, after): Compare screenshots
+- query_screen(query): Ask questions about the screen
 - focus_window(name): Focus a window by name
 - run_shell_command(args): Run a shell command
 
@@ -328,7 +459,7 @@ Respond with either "VALID" or "INVALID: [reason]"
 </UserRequest>
 
 <GeneratedPlan>
-{plan}
+{plan_json}
 </GeneratedPlan>
 """
 
