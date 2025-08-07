@@ -44,6 +44,14 @@ session_manager = None
 @app.on_event("startup")
 def startup():
     global session_manager
+    
+    # Suppress HTTP library logs
+    import logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
     session_manager = SimpleSessionManager(ollama_url)
     web_logger.info(f"Web server started with Ollama URL: {ollama_url}")
@@ -160,7 +168,13 @@ def main():
     print(f"🧠 Ollama: {args.ollama_url}")
     print()
     
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(
+        app, 
+        host=args.host, 
+        port=args.port,
+        access_log=False,  # Disable HTTP access logs
+        log_level="warning"  # Only show warnings and errors
+    )
 
 if __name__ == "__main__":
     main()

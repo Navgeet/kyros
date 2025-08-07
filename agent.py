@@ -244,6 +244,13 @@ def main():
     import os
     os.environ["OLLAMA_URL"] = args.ollama_url
     
+    # Suppress HTTP library logs to keep stdout clean
+    import logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    
     agent = AIAgent(args.ollama_url)
     
     if args.task:
