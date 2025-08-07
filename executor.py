@@ -64,6 +64,14 @@ class Executor:
             
             # Execute the first available task
             task = executable_tasks[0]
+            
+            # Skip tasks that already have success status
+            if task.get('status') == "success":
+                task_name = task.get('name', f"Task {task.get('id', 'unknown')}")
+                print(f"⏭️  Skipping already successful task: {task_name}")
+                tasks_to_execute.remove(task)
+                continue
+            
             task['status'] = "running"
             result = self._execute_json_task(task, task_lookup)
             
@@ -102,6 +110,11 @@ class Executor:
         print(f"Executing task: {task_name}")
         
         try:
+            # Skip if task already has success status
+            if task.get('status') == "success":
+                print(f"⏭️  Task {task_name} already completed successfully")
+                return True
+            
             # If this is a ToolCall, execute it directly
             if task.get('type') == 'tool_call':
                 success = self._execute_json_tool_call(task)
