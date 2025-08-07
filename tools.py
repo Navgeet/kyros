@@ -80,6 +80,28 @@ class Tools:
             return False
     
     @staticmethod
+    def move_to(x: int, y: int) -> bool:
+        """Moves the mouse cursor to the specified coordinates."""
+        try:
+            pyautogui.moveTo(x, y)
+            time.sleep(0.1)  # Small delay after moving
+            return True
+        except Exception as e:
+            print(f"Error moving mouse to ({x}, {y}): {e}")
+            return False
+    
+    @staticmethod
+    def click(x: int, y: int) -> bool:
+        """Clicks at the specified coordinates."""
+        try:
+            pyautogui.click(x, y)
+            time.sleep(0.1)  # Small delay after clicking
+            return True
+        except Exception as e:
+            print(f"Error clicking at ({x}, {y}): {e}")
+            return False
+    
+    @staticmethod
     def type(text: str) -> bool:
         """Types the specified text. Won't do anything if there is nowhere to type into."""
         try:
