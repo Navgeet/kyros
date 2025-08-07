@@ -166,11 +166,11 @@ Provide a concise description of what you see.
             # Add conversation history and screen context as context if available
             context_section = ""
             if conversation_history:
-                history_json = json.dumps(conversation_history, indent=2)
+                state_json = json.dumps(conversation_history, indent=2)
                 context_section += f"""
-<History>
-{history_json}
-</History>
+<State>
+{state_json}
+</State>
 """
         
             if screen_context:
@@ -205,7 +205,6 @@ Return the JSON representation of tasks only.
       "name": "search google for restaurants near me",
       "verify_screen_change": false,
       "subtasks": [1, 2, 3],
-      "dependencies": []
     }},
     {{
       "id": 1,
@@ -213,7 +212,6 @@ Return the JSON representation of tasks only.
       "name": "focus chrome window",
       "verify_screen_change": true,
       "subtasks": [4],
-      "dependencies": []
     }},
     {{
       "id": 2,
@@ -236,32 +234,24 @@ Return the JSON representation of tasks only.
       "type": "tool_call",
       "tool_name": "focus_window",
       "params": {{"name": "chrome"}},
-      "subtasks": [],
-      "dependencies": []
     }},
     {{
       "id": 5,
       "type": "tool_call",
       "tool_name": "hotkey",
       "params": {{"keys": "ctrl+t"}},
-      "subtasks": [],
-      "dependencies": []
     }},
     {{
       "id": 6,
       "type": "tool_call",
       "tool_name": "type",
       "params": {{"text": "restaurants near me"}},
-      "subtasks": [],
-      "dependencies": []
     }},
     {{
       "id": 7,
       "type": "tool_call", 
       "tool_name": "hotkey",
       "params": {{"keys": "enter"}},
-      "subtasks": [],
-      "dependencies": []
     }}
   ]
 }}
@@ -278,21 +268,20 @@ Return the JSON representation of tasks only.
       "id": 0,
       "type": "task",
       "name": "click on the search box",
-      "verify_screen_change": false,
+      "verify_screen_change": true,
       "subtasks": [1, 2],
-      "dependencies": []
     }},
     {{
       "id": 1,
       "type": "tool_call",
       "tool_name": "query_screen",
       "params": {{"query": "return coordinates for the search box"}},
-      "subtasks": [],
-      "dependencies": []
     }},
     {{
       "id": 2,
-      "type": "plan"    }}
+      "type": "plan",
+      "dependencies": [1],
+    }}
   ]
 }}
 ```
@@ -301,6 +290,37 @@ Return the JSON representation of tasks only.
 Since we need to click on the search box, we first locate it on the screen using `query_screen`.
 But since we don't know the exact output of `query_screen`, we create a Plan task to handle it.
 On the next iteration, the agent will analyze the output of `query_screen` and create a task to click on the search box.
+</Explain>
+</Example>
+
+<Example>
+<Input>click on the search box</Input>
+<State>
+[
+{{"from":"user", "text": "click on the search box"}},
+{{"from":"system", "plan": {{
+  "tasks": [
+    {{"id": 0,"type": "task","name": "click on the search box","verify_screen_change": true,"subtasks": [1, 2], "status": "replan"}},
+    {{"id": 1,"type": "tool_call","tool_name": "query_screen", "params": {{"query": "return coordinates for the search box"}}, "status": "success", "stdout": "bbox: (100, 200, 150, 300)"}},
+    {{"id": 2,"type": "plan", "dependencies": [1], "status": "replan"}}
+  ]
+}}}}
+]
+</State>
+<Output>
+```json
+{{
+  "tasks": [
+    {{"id": 0, "type": "task", "name": "click on the search box", "verify_screen_change": true, "subtasks": [1, 2]}},
+    {{"id": 1, "type": "tool_call", "tool_name": "query_screen", "params": {{"query": "return coordinates for the search box"}}, "status": "success", "stdout": "bbox: (100, 200, 150, 300)"}},
+    {{"id": 2, "type": "tool_call", "tool_name": "click", "params": {{"x": 125, "y": 250}}, "verify_screen_change": true, "dependencies": [1]}},
+  ]
+}}
+```
+</Output>
+<Explain>
+After the first attempt, we got the coordinates of the search box from `query_screen`.
+Now we add new tasks to replace the Plan task
 </Explain>
 </Example>
 </Examples>
@@ -330,7 +350,7 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 <Rules>
 1. If a task changes the screen (like opening an app, running a command), then it should have `verify_screen_change=true`
 2. If a tool returns some output that should be further analyzed, then create a Plan task after the tool call and add it as a subtask.
-3. Don't add any subtasks after a Plan task, they will be created when that Plan task is executed.
+3. Don't add any subtasks after a Plan task, they will be created during replanning.
 4. A tool call cannot have subtasks.
 5. Each task must have a unique integer id.
 6. Use task ids to reference subtasks and dependencies (not task names).
@@ -343,9 +363,10 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 """
         
 
-            # print prompt in yellow
-            print(f"\033[93m{prompt}\033[0m")  # Yellow
-            print()
+            planner_logger.info(f"prompt: {prompt}\n")
+            # # print prompt in yellow
+            # print(f"\033[93m{prompt}\033[0m")  # Yellow
+            # print()
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
                 json={

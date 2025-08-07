@@ -201,6 +201,8 @@ class Tools:
             # Prepare the request to Ollama
             ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
             api_url = f"{ollama_url}/api/generate"
+
+            query = f"Instruct: If asked to find/locate/search for something, then also return bounding box in two point format: (x1, y1, x2, y2)\nQuery: {query}"
             
             payload = {
                 "model": "qwen2.5vl:7b",
