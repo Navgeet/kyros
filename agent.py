@@ -9,8 +9,8 @@ from logger import agent_logger, get_session_logger
 import uuid
 
 class AIAgent:
-    def __init__(self, ollama_url: str = "http://localhost:11434", session_id: str = None):
-        self.planner = Planner(ollama_url)
+    def __init__(self, ollama_url: str = "http://localhost:11434", vllm_url: str = None, session_id: str = None):
+        self.planner = Planner(ollama_url, vllm_url)
         self.executor = Executor()
         self.conversation_history = []
         self.session_id = session_id or str(uuid.uuid4())
@@ -237,6 +237,8 @@ def main():
     parser.add_argument('--ollama-url', type=str, 
                        default='http://localhost:11434',
                        help='Ollama server URL')
+    parser.add_argument('--vllm-url', type=str,
+                       help='vLLM server URL for planning (defaults to ollama-url)')
     
     args = parser.parse_args()
     
@@ -251,7 +253,7 @@ def main():
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
     
-    agent = AIAgent(args.ollama_url)
+    agent = AIAgent(args.ollama_url, args.vllm_url)
     
     if args.task:
         # Single task mode

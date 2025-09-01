@@ -53,7 +53,8 @@ def startup():
     logging.getLogger("requests").setLevel(logging.WARNING)
     
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-    session_manager = SimpleSessionManager(ollama_url)
+    vllm_url = os.getenv("VLLM_URL")
+    session_manager = SimpleSessionManager(ollama_url, vllm_url)
     web_logger.info(f"Web server started with Ollama URL: {ollama_url}")
 
 @app.get("/", response_class=HTMLResponse)
@@ -154,14 +155,22 @@ def main():
     parser.add_argument('--ollama-url', type=str, 
                        default='http://localhost:11434',
                        help='Ollama server URL')
+    parser.add_argument('--vllm-url', type=str,
+                       help='vLLM server URL for planning (defaults to ollama-url)')
     
     args = parser.parse_args()
     
-    # Set environment variable for the agent
+    # Set environment variables for the agent
     os.environ["OLLAMA_URL"] = args.ollama_url
+    if args.vllm_url:
+        os.environ["VLLM_URL"] = args.vllm_url
     
     web_logger.info(f"Starting Triton AI Agent Web Server on {args.host}:{args.port}")
     web_logger.info(f"Using Ollama URL: {args.ollama_url}")
+    if args.vllm_url:
+        web_logger.info(f"Using vLLM URL: {args.vllm_url}")
+    else:
+        web_logger.info("Using Ollama URL for both tools and planning")
     
     print(f"🚀 Starting Triton AI Agent Web Server...")
     print(f"🌐 Server: http://{args.host}:{args.port}")

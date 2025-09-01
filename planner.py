@@ -71,8 +71,9 @@ class Planner:
     Generates task hierarchies as JSON instead of Python code for better 
     reliability and easier debugging. The JSON is passed directly to the executor.
     """
-    def __init__(self, ollama_url: str = "http://localhost:11434"):
+    def __init__(self, ollama_url: str = "http://localhost:11434", vllm_url: str = None):
         self.ollama_url = ollama_url
+        self.vllm_url = vllm_url or ollama_url
     
     def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None, regenerate_screen_context: bool = True) -> Dict:
         # Generate screen context only if requested (not during replanning)
@@ -368,13 +369,18 @@ Now we add new tasks to replace the Plan task
             # print(f"\033[93m{prompt}\033[0m")  # Yellow
             # print()
             response = requests.post(
-                f"{self.ollama_url}/api/generate",
+                f"{self.vllm_url}/v1/chat/completions",
                 json={
-                    "model": "qwen3:30b-a3b",
-                    "prompt": prompt,
+                    "model": "Qwen/Qwen3-4B-Thinking-2507",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": True,
+                    "temperature": 0.6,
+                    "top_p": 0.95,
+                    "top_k": 20,
+                    "min_p": 0,
+                    "presence_penalty": 1,
                     "stream": True
                 },
-                stream=True
             )
             
             if response.status_code == 200:
@@ -383,53 +389,37 @@ Now we add new tasks to replace the Plan task
                 thinking_started = False
                 
                 for line in response.iter_lines():
-                    if line:
+                    if line.startswith(b"data:"):
+                        data = line.decode()[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        
                         try:
-                            chunk = json.loads(line.decode('utf-8'))
-                            token = chunk.get('response', '')
-                            full_response += token
+                            chunk = json.loads(data)
+                            delta = chunk["choices"][0]["delta"]
                             
-                            # Handle thinking content streaming
-                            if not thinking_started and '<think>' in full_response:
-                                print("💭 Thinking:")
-                                thinking_started = True
-                                in_thinking = True
-                                # Find the start of thinking content
-                                think_start = full_response.rfind('<think>') + 7
-                                if len(full_response) > think_start:
-                                    thinking_part = full_response[think_start:]
-                                    if '</think>' in thinking_part:
-                                        # Complete thinking block already available
-                                        thinking_content = thinking_part.split('</think>')[0]
-                                        print(f"\033[90m{thinking_content}\033[0m", end="", flush=True)
-                                        print("\n")  # End thinking section
-                                        in_thinking = False
-                                    else:
-                                        # Partial thinking content - print what we have so far
-                                        print(f"\033[90m{thinking_part}\033[0m", end="", flush=True)
-                            elif in_thinking:
-                                if '</think>' in token:
-                                    # End of thinking - print remaining content before the closing tag
-                                    thinking_part = token.split('</think>')[0]
-                                    if thinking_part:
-                                        print(f"\033[90m{thinking_part}\033[0m", end="", flush=True)
-                                    print("\n")  # End thinking section with newline
+                            # Handle reasoning content (thinking)
+                            reasoning_content = delta.get("reasoning_content", "")
+                            if reasoning_content:
+                                if not thinking_started:
+                                    print("💭 Thinking:")
+                                    thinking_started = True
+                                    in_thinking = True
+                                print(f"\033[90m{reasoning_content}\033[0m", end="", flush=True)
+                            
+                            # Handle regular content
+                            content = delta.get("content", "")
+                            if content:
+                                if in_thinking:
+                                    print()  # End thinking section with newline
                                     in_thinking = False
-                                else:
-                                    # Continue thinking content - print this token
-                                    print(f"\033[90m{token}\033[0m", end="", flush=True)
-                            
-                            if chunk.get('done', False):
-                                break
+                                full_response += content
                                 
                         except json.JSONDecodeError:
                             continue
                 
-                # Extract the final code content (after </think> if present)
-                if '</think>' in full_response:
-                    code = full_response.split('</think>')[1].strip()
-                else:
-                    code = full_response.strip()
+                # Use the full response as code since reasoning is handled separately
+                code = full_response.strip()
                 
                 return code
             else:
