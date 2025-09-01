@@ -383,7 +383,7 @@
                                 isTaskRunning = false;
                                 enableInput();
                                 stopPolling();
-                                break;
+                                return;
                             case 'running':
                                 updateStatus('working', `Processing: ${metadata.current_task || 'Task in progress'}`);
                                 break;
@@ -393,14 +393,14 @@
                                 isTaskRunning = false;
                                 enableInput();
                                 stopPolling();
-                                break;
+                                return;
                             case 'failed':
                                 updateStatus('error', 'Task failed');
                                 addMessage('error', `Task failed: ${metadata.result ? metadata.result.error || 'Unknown error' : 'Unknown error'}`);
                                 isTaskRunning = false;
                                 enableInput();
                                 stopPolling();
-                                break;
+                                return;
                         }
                     }
                 }
@@ -409,6 +409,11 @@
                 console.error('Polling error:', error);
                 // Don't show error messages for polling failures unless it's been failing for a while
             }
+            
+            // Schedule next poll only after this one completes
+            if (isTaskRunning) {
+                setTimeout(pollTaskStatus, 2000);
+            }
         }
         
         function startPolling() {
@@ -416,14 +421,10 @@
                 clearInterval(pollingInterval);
             }
             document.getElementById('polling-status').style.display = 'block';
-            pollingInterval = setInterval(pollTaskStatus, 2000); // Poll every 2 seconds
+            pollTaskStatus(); // Start the first poll immediately
         }
         
         function stopPolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-            }
             document.getElementById('polling-status').style.display = 'none';
         }
         
