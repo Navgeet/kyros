@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to run task JSON files for testing the Triton agent system.
+Script to run task JSON files for testing the Kyros agent system.
 
 Usage:
     python3 run_task_json.py <task_file.json>

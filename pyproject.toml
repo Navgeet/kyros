@@ -1,5 +1,5 @@
 [project]
-name = "triton"
+name = "kyros"
 version = "0.1.0"
 description = "AI Agent with planning and execution"
 requires-python = ">= 3.11"

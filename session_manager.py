@@ -55,7 +55,7 @@ class Session:
         self._lock = threading.Lock()
         
         # Add welcome message
-        self.add_message(MessageType.SYSTEM, "Welcome to Triton AI Agent! Enter a task to get started.")
+        self.add_message(MessageType.SYSTEM, "Welcome to Kyros AI Agent! Enter a task to get started.")
     
     def add_message(self, msg_type: MessageType, content: str, metadata: Optional[Dict[str, Any]] = None):
         with self._lock:

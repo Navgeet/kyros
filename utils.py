@@ -4,7 +4,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.history import FileHistory
 import os
 
-history_file = os.path.expanduser("~/.triton_history")
+history_file = os.path.expanduser("~/.kyros_history")
 session = PromptSession(history=FileHistory(history_file))
 
 async def input():

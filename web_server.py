@@ -17,7 +17,7 @@ import uuid
 from typing import Optional
 from datetime import datetime
 
-app = FastAPI(title="Triton AI Agent Web Interface")
+app = FastAPI(title="Kyros AI Agent Web Interface")
 templates = Jinja2Templates(directory="templates")
 
 class TaskRequest(BaseModel):
@@ -147,7 +147,7 @@ def delete_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
 def main():
-    parser = argparse.ArgumentParser(description='Triton AI Agent Web Server')
+    parser = argparse.ArgumentParser(description='Kyros AI Agent Web Server')
     parser.add_argument('--host', type=str, default='0.0.0.0',
                        help='Host to bind to (default: 0.0.0.0)')
     parser.add_argument('--port', type=int, default=8000,
@@ -165,14 +165,14 @@ def main():
     if args.vllm_url:
         os.environ["VLLM_URL"] = args.vllm_url
     
-    web_logger.info(f"Starting Triton AI Agent Web Server on {args.host}:{args.port}")
+    web_logger.info(f"Starting Kyros AI Agent Web Server on {args.host}:{args.port}")
     web_logger.info(f"Using Ollama URL: {args.ollama_url}")
     if args.vllm_url:
         web_logger.info(f"Using vLLM URL: {args.vllm_url}")
     else:
         web_logger.info("Using Ollama URL for both tools and planning")
     
-    print(f"🚀 Starting Triton AI Agent Web Server...")
+    print(f"🚀 Starting Kyros AI Agent Web Server...")
     print(f"🌐 Server: http://{args.host}:{args.port}")
     print(f"🧠 Ollama: {args.ollama_url}")
     print()
