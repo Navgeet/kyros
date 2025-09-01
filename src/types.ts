@@ -14,6 +14,7 @@ export interface Message {
     result?: {
       error?: string;
     };
+    task_nodes?: TaskNode[];
   };
 }
 

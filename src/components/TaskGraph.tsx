@@ -1,7 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
-  MiniMap,
   Controls,
   Background,
   Node,
@@ -66,7 +65,7 @@ export default function TaskGraph({ tasks, onTaskSelect, selectedTaskId }: TaskG
   }, [tasks, selectedTaskId, onTaskSelect, setNodes, setEdges]);
 
   return (
-    <div style={{ width: '100%', height: '600px' }}>
+    <div style={{ width: '100%', height: '100%' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -77,7 +76,6 @@ export default function TaskGraph({ tasks, onTaskSelect, selectedTaskId }: TaskG
         fitView
       >
         <Controls />
-        <MiniMap />
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
       </ReactFlow>
     </div>

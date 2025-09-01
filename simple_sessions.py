@@ -13,6 +13,8 @@ class SimpleSession:
         self.current_task = None
         self.status = "idle"  # "idle", "running", "completed", "failed"
         self.result = None
+        self.current_plan = None
+        self.task_progress = {}  # {task_id: {status, stdout, stderr}}
         self._lock = threading.Lock()
 
     def execute_task_sync(self, task: str, max_retries: int = 3) -> bool:
@@ -20,9 +22,23 @@ class SimpleSession:
         with self._lock:
             self.current_task = task
             self.status = "running"
+            self.current_plan = None
+            self.task_progress = {}
         
         try:
+            # Hook into agent's plan generation and execution
             success = self.agent.run_task(task, max_retries)
+            
+            # Try to extract plan data from agent if available
+            if hasattr(self.agent, 'last_plan') and self.agent.last_plan:
+                self.current_plan = self.agent.last_plan
+            elif hasattr(self.agent, 'executor') and hasattr(self.agent.executor, 'current_plan'):
+                self.current_plan = self.agent.executor.current_plan
+            
+            # Try to extract task progress from executor
+            if hasattr(self.agent, 'executor') and hasattr(self.agent.executor, 'task_status'):
+                self.task_progress = self.agent.executor.task_status
+            
             with self._lock:
                 self.status = "completed" if success else "failed"
                 self.result = {"success": success, "task": task}
@@ -74,11 +90,30 @@ class SimpleSessionManager:
         if not session:
             return {"error": "Session not found"}
         
+        # Convert plan tasks to TaskNode format for frontend
+        task_nodes = []
+        if session.current_plan and 'tasks' in session.current_plan:
+            for task in session.current_plan['tasks']:
+                task_id = str(task.get('id', ''))
+                progress = session.task_progress.get(task_id, {})
+                
+                task_node = {
+                    "id": task_id,
+                    "name": task.get('name', f"Task {task_id}"),
+                    "status": progress.get('status', 'pending'),
+                    "dependencies": [str(dep) for dep in task.get('dependencies', [])],
+                    "stdout": progress.get('stdout', []),
+                    "stderr": progress.get('stderr', [])
+                }
+                task_nodes.append(task_node)
+        
         return {
             "session_id": session_id,
             "status": session.status,
             "current_task": session.current_task,
-            "result": session.result
+            "result": session.result,
+            "plan": session.current_plan,
+            "task_nodes": task_nodes
         }
 
     def get_stats(self) -> Dict:

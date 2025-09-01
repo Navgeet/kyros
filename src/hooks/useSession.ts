@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
-import { Message, StatusType } from '../types';
+import { Message, StatusType, TaskNode } from '../types';
 
 export const useSession = () => {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -17,6 +17,7 @@ export const useSession = () => {
   const [isTaskRunning, setIsTaskRunning] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
+  const [taskNodes, setTaskNodes] = useState<TaskNode[]>([]);
   
   const pollingRef = useRef<number | null>(null);
 
@@ -54,17 +55,28 @@ export const useSession = () => {
   }, []);
 
   const pollTaskStatus = useCallback(async () => {
-    if (!sessionId || !isTaskRunning) return;
+    if (!sessionId || !isTaskRunning) {
+      console.log('Polling stopped - sessionId:', sessionId, 'isTaskRunning:', isTaskRunning);
+      return;
+    }
 
+    console.log('Polling task status for session:', sessionId);
     try {
       const result = await api.getMessages({
         session_id: sessionId,
         since_message_id: undefined,
       });
 
+      console.log('Polling response:', result);
+
       if (result.messages && result.messages.length > 0) {
         const statusMessage = result.messages[0];
         const metadata = statusMessage.metadata;
+
+        // Update task nodes for TaskViewer
+        if (metadata?.task_nodes) {
+          setTaskNodes(metadata.task_nodes);
+        }
 
         if (metadata?.status) {
           switch (metadata.status) {
@@ -103,13 +115,77 @@ export const useSession = () => {
     }
   }, [sessionId, isTaskRunning, updateStatus, addMessage]);
 
-  const startPolling = useCallback(() => {
+  const startPolling = useCallback((currentSessionId: string) => {
+    console.log('Starting polling for session:', currentSessionId);
     if (pollingRef.current) {
       clearTimeout(pollingRef.current);
     }
     setIsPolling(true);
-    pollTaskStatus();
-  }, [pollTaskStatus]);
+    
+    // Create a direct polling function that doesn't depend on state closure
+    const poll = async () => {
+      console.log('Direct polling for session:', currentSessionId);
+      try {
+        const result = await api.getMessages({
+          session_id: currentSessionId,
+          since_message_id: undefined,
+        });
+
+        console.log('Direct polling response:', result);
+
+        if (result.messages && result.messages.length > 0) {
+          const statusMessage = result.messages[0];
+          const metadata = statusMessage.metadata;
+
+          // Update task nodes for TaskViewer
+          if (metadata?.task_nodes) {
+            setTaskNodes(metadata.task_nodes);
+          }
+
+          if (metadata?.status) {
+            switch (metadata.status) {
+              case 'idle':
+                updateStatus('ready', 'Ready');
+                setIsTaskRunning(false);
+                setIsLoading(false);
+                setIsPolling(false);
+                return;
+              case 'running':
+                updateStatus('working', `Processing: ${metadata.current_task || 'Task in progress'}`);
+                pollingRef.current = window.setTimeout(poll, 2000);
+                break;
+              case 'completed':
+                updateStatus('ready', 'Task completed successfully!');
+                addMessage('system', `Task completed: ${metadata.current_task}`, metadata);
+                setIsTaskRunning(false);
+                setIsLoading(false);
+                setIsPolling(false);
+                return;
+              case 'failed':
+                updateStatus('error', 'Task failed');
+                addMessage('error', `Task failed: ${metadata.result?.error || 'Unknown error'}`);
+                setIsTaskRunning(false);
+                setIsLoading(false);
+                setIsPolling(false);
+                return;
+              default:
+                pollingRef.current = window.setTimeout(poll, 2000);
+                break;
+            }
+          } else {
+            pollingRef.current = window.setTimeout(poll, 2000);
+          }
+        } else {
+          pollingRef.current = window.setTimeout(poll, 2000);
+        }
+      } catch (error) {
+        console.error('Direct polling error:', error);
+        pollingRef.current = window.setTimeout(poll, 2000);
+      }
+    };
+    
+    poll();
+  }, [updateStatus, addMessage]);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -122,9 +198,20 @@ export const useSession = () => {
   const submitTask = useCallback(async (task: string) => {
     if (isTaskRunning) return;
 
-    if (!sessionId) {
-      await initializeSession();
-      return;
+    let currentSessionId = sessionId;
+    
+    // Initialize session if needed
+    if (!currentSessionId) {
+      try {
+        const result = await api.createSession();
+        currentSessionId = result.session_id;
+        setSessionId(currentSessionId);
+        console.log('Session initialized:', currentSessionId);
+      } catch (error) {
+        console.error('Failed to initialize session:', error);
+        addMessage('error', 'Failed to initialize session');
+        return;
+      }
     }
 
     setIsTaskRunning(true);
@@ -134,7 +221,7 @@ export const useSession = () => {
     try {
       const result = await api.executeTask({
         task,
-        session_id: sessionId,
+        session_id: currentSessionId,
       });
 
       addMessage('user', task);
@@ -142,7 +229,7 @@ export const useSession = () => {
       if (result.status === 'started') {
         console.log('Task started:', result.task_id);
         updateStatus('working', 'Task in progress...');
-        startPolling();
+        startPolling(currentSessionId);
       } else {
         addMessage('error', `Unexpected task status: ${result.status}`);
         updateStatus('error', 'Error');
@@ -156,7 +243,7 @@ export const useSession = () => {
       setIsTaskRunning(false);
       setIsLoading(false);
     }
-  }, [sessionId, isTaskRunning, initializeSession, updateStatus, addMessage, startPolling]);
+  }, [sessionId, isTaskRunning, updateStatus, addMessage, startPolling]);
 
   // Initialize session on mount
   useEffect(() => {
@@ -177,6 +264,7 @@ export const useSession = () => {
     isTaskRunning,
     isLoading,
     isPolling,
+    taskNodes,
     submitTask,
   };
 };

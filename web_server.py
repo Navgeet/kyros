@@ -89,19 +89,27 @@ def execute_task(request: TaskRequest):
 
 @app.post("/api/messages", response_model=MessagesResponse)
 def get_messages(request: MessagesRequest):
-    """Get session status (simplified - no message history)."""
+    """Get session status and task data."""
     if not session_manager:
         raise HTTPException(status_code=500, detail="Session manager not initialized")
     
     try:
         status = session_manager.get_session_status(request.session_id)
+        
+        # Extract task_nodes for the TaskViewer
+        task_nodes = status.get('task_nodes', [])
+        
         # Convert status to message format for compatibility
         messages = [{
             "id": "status",
             "type": "status",
             "content": f"Session status: {status.get('status', 'unknown')}",
             "timestamp": datetime.now().isoformat(),
-            "metadata": status
+            "metadata": {
+                **status,
+                "task_nodes": task_nodes,
+                "plan": status.get('plan')
+            }
         }]
         return MessagesResponse(
             messages=messages,
