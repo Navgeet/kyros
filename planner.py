@@ -126,7 +126,7 @@ Provide a concise description of what you see.
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
                 json={
-                    "model": "qwen2.5vl:7b",
+                    "model": "qwen2.5vl:3b",
                     "prompt": context_prompt,
                     "stream": False,
                     "images": [screen_base64]
@@ -276,7 +276,7 @@ Return the JSON representation of tasks only.
       "id": 1,
       "type": "tool_call",
       "tool_name": "query_screen",
-      "params": {{"query": "return coordinates for the search box"}},
+      "params": {{"query": "locate the search box"}},
     }},
     {{
       "id": 2,
@@ -302,7 +302,7 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 {{"from":"system", "plan": {{
   "tasks": [
     {{"id": 0,"type": "task","name": "click on the search box","verify_screen_change": true,"subtasks": [1, 2], "status": "replan"}},
-    {{"id": 1,"type": "tool_call","tool_name": "query_screen", "params": {{"query": "return coordinates for the search box"}}, "status": "success", "stdout": "bbox: (100, 200, 150, 300)"}},
+    {{"id": 1,"type": "tool_call","tool_name": "query_screen", "params": {{"query": "locate the search box"}}, "status": "success", "stdout": "click(x=0.4089, y=0.6493)"}},
     {{"id": 2,"type": "plan", "dependencies": [1], "status": "replan"}}
   ]
 }}}}
@@ -313,8 +313,8 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 {{
   "tasks": [
     {{"id": 0, "type": "task", "name": "click on the search box", "verify_screen_change": true, "subtasks": [1, 2]}},
-    {{"id": 1, "type": "tool_call", "tool_name": "query_screen", "params": {{"query": "return coordinates for the search box"}}, "status": "success", "stdout": "bbox: (100, 200, 150, 300)"}},
-    {{"id": 2, "type": "tool_call", "tool_name": "click", "params": {{"x": 125, "y": 250}}, "verify_screen_change": true, "dependencies": [1]}},
+    {{"id": 1, "type": "tool_call", "tool_name": "query_screen", "params": {{"query": "locate the search box"}}, "status": "success", "stdout": "click(x=0.4089, y=0.6493)"}},
+    {{"id": 2, "type": "tool_call", "tool_name": "click", "params": {{"x": 0.4089, "y": 0.6493}}, "verify_screen_change": true, "dependencies": [1]}},
   ]
 }}
 ```
@@ -338,7 +338,7 @@ Now we add new tasks to replace the Plan task
 
 **Screen**
 - query_screen(query): Ask questions about the screen. Examples:
-    - return coordinates for the input field for email
+    - locate the input field for email
     - Does the button "Submit" exist on the screen?
 
 **Window management**

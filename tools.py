@@ -5,8 +5,8 @@ import os
 import requests
 import json
 import base64
-from typing import Dict, Any
-from PIL import Image
+from typing import Dict, Any, Union
+from PIL import Image, ImageDraw
 import hashlib
 
 class Tools:
@@ -246,44 +246,53 @@ class Tools:
             return False
     
     @staticmethod
-    def query_screen(query: str, task=None) -> str:
-        """Ask questions about the screen using a vision model."""
+    def query_screen_internlm(query: str, task=None, api_url: str = "http://localhost:23333", api_key: str = None) -> str:
+        """Ask questions about the screen using InternLM vision model via OpenAI-compatible API."""
         try:
             # Take a screenshot
             screenshot = pyautogui.screenshot()
             
-            # Convert screenshot to base64
+            # Compress screenshot and convert to base64
             import io
             img_buffer = io.BytesIO()
-            screenshot.save(img_buffer, format='PNG')
+            screenshot.save(img_buffer, format='JPEG', quality=75, optimize=True)
             img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
             
-            # Prepare the request to Ollama
-            ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-            api_url = f"{ollama_url}/api/generate"
-
-            query = f"Instruct: If asked to find/locate/search for something, then also return bounding box in two point format: (x1, y1, x2, y2)\nQuery: {query}"
+            # Prepare the request to InternLM API (OpenAI-compatible)
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            
+            # Format query with bbox instruction if needed
+            formatted_query = f"{query}"
             
             payload = {
-                "model": "qwen2.5vl:7b",
-                "prompt": query,
-                "images": [img_base64],
+                "model": "internvl3.5-241b-a28b",  # This will be auto-detected by the server
+                "messages": [
+                    {
+                        "role": "user", 
+                        "content": [
+                            {"type": "text", "text": formatted_query},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                        ]
+                    }
+                ],
                 "stream": False
             }
             
-            response = requests.post(api_url, json=payload)
+            response = requests.post(f"{api_url}/v1/chat/completions", json=payload, headers=headers)
             
             if response.status_code == 200:
                 result = response.json()
-                answer = result.get('response', '').strip()
-                print(f"Vision model response: {answer}")
+                answer = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                print(f"InternLM vision model response: {answer}")
                 
                 # Attach output to task if provided
                 Tools._set_task_output(task, stdout=answer)
                 
                 return answer
             else:
-                error_msg = f"Ollama API error: {response.status_code} - {response.text}"
+                error_msg = f"InternLM API error: {response.status_code} - {response.text}"
                 print(error_msg)
                 error_response = json.dumps({"error": error_msg})
                 
@@ -293,7 +302,7 @@ class Tools:
                 return error_response
                 
         except Exception as e:
-            error_msg = f"Error in query_screen: {e}"
+            error_msg = f"Error in query_screen_internlm: {e}"
             print(error_msg)
             error_response = json.dumps({"error": error_msg})
             
@@ -301,3 +310,117 @@ class Tools:
             Tools._set_task_output(task, stderr=error_msg)
             
             return error_response
+
+    @staticmethod 
+    def query_vision_model(query: str, image_path: str = None, task=None, 
+                          api_type: str = "ollama", api_url: str = None, 
+                          api_key: str = None, model: str = None) -> str:
+        """Generic method to query vision models with different API providers."""
+        try:
+            # Use screenshot if no image path provided
+            if image_path:
+                with Image.open(image_path) as img:
+                    screenshot = img.copy()
+            else:
+                screenshot = pyautogui.screenshot()
+            
+            # Add grid lines to help the model
+            width, height = screenshot.size
+            draw = ImageDraw.Draw(screenshot)
+            
+            # Draw 10 vertical grid lines (0.1x apart)
+            for i in range(1, 10):
+                x = int(width * i * 0.1)
+                draw.line([(x, 0), (x, height)], fill='red', width=2)
+            
+            # Draw 10 horizontal grid lines (0.1x apart) 
+            for i in range(1, 10):
+                y = int(height * i * 0.1)
+                draw.line([(0, y), (width, y)], fill='red', width=2)
+            
+            # Compress screenshot and convert to base64
+            import io
+            img_buffer = io.BytesIO()
+            screenshot.save(img_buffer, format='JPEG', quality=75, optimize=True)
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+            
+            # Format query with bbox instruction if needed
+            formatted_query = f"Instruct: If asked to find/locate/search for something, then just return a point for clicking example output: <action>click(x=0.3797, y=0.7417)</action>. Use the grid lines for estimating the point. The grid divides the screen into a 10x10 grid where each cell represents 10% of the width and height\nQuery: {query}"
+            
+            if api_type.lower() == "internlm":
+                # InternLM API (OpenAI-compatible)
+                if not api_url:
+                    api_url = os.getenv("INTERNLM_URL", "http://localhost:23333")
+                if not model:
+                    model = "internlm-chat"
+                    
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "user", 
+                            "content": [
+                                {"type": "text", "text": formatted_query},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                            ]
+                        }
+                    ],
+                    "enable_thinking": False,
+                    "stream": False
+                }
+                
+                response = requests.post(f"{api_url}/v1/chat/completions", json=payload, headers=headers)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    answer = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                else:
+                    error_msg = f"InternLM API error: {response.status_code} - {response.text}"
+                    print(error_msg)
+                    Tools._set_task_output(task, stderr=error_msg)
+                    return json.dumps({"error": error_msg})
+                    
+            else:
+                # Default to Ollama API
+                if not api_url:
+                    api_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+                if not model:
+                    model = "qwen2.5vl:7b"
+                
+                payload = {
+                    "model": model,
+                    "prompt": formatted_query,
+                    "images": [img_base64],
+                    "stream": False
+                }
+                
+                response = requests.post(f"{api_url}/api/generate", json=payload)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    answer = result.get('response', '').strip()
+                else:
+                    error_msg = f"Ollama API error: {response.status_code} - {response.text}"
+                    print(error_msg)
+                    Tools._set_task_output(task, stderr=error_msg)
+                    return json.dumps({"error": error_msg})
+            
+            print(f"Vision model response: {answer}")
+            Tools._set_task_output(task, stdout=answer)
+            return answer
+                
+        except Exception as e:
+            error_msg = f"Error in query_vision_model: {e}"
+            print(error_msg)
+            error_response = json.dumps({"error": error_msg})
+            Tools._set_task_output(task, stderr=error_msg)
+            return error_response
+
+    @staticmethod
+    def query_screen(query: str, task=None) -> str:
+        """Ask questions about the screen using a vision model (defaults to Ollama)."""
+        return Tools.query_vision_model(query, task=task, api_type="internlm", api_key="sk-QpCDT6MB54Yz31D6Cuw47puneTT9Yo5M4H61Pm7Nk1fY1CFM", api_url='https://chat.intern-ai.org.cn/api', model="internvl3.5-241b-a28b")
