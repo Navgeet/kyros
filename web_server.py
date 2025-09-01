@@ -3,8 +3,7 @@
 import json
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import uvicorn
@@ -18,7 +17,9 @@ from typing import Optional
 from datetime import datetime
 
 app = FastAPI(title="Kyros AI Agent Web Interface")
-templates = Jinja2Templates(directory="templates")
+
+# Mount static files (built React app)
+app.mount("/assets", StaticFiles(directory="dist/assets", html=True), name="assets")
 
 class TaskRequest(BaseModel):
     task: str
@@ -57,12 +58,10 @@ def startup():
     session_manager = SimpleSessionManager(ollama_url, vllm_url)
     web_logger.info(f"Web server started with Ollama URL: {ollama_url}")
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def get_index():
     """Serve the main web interface."""
-    with open("templates/index.html", "r") as f:
-        html_content = f.read()
-    return HTMLResponse(content=html_content)
+    return FileResponse("dist/index.html")
 
 @app.post("/api/execute", response_model=TaskResponse)
 def execute_task(request: TaskRequest):

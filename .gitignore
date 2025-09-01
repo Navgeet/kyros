@@ -3,7 +3,12 @@
 *.log
 tmp/
 
+/node_modules
+/dist
+
 CLAUDE.md
+claude.md
+
 /__pycache__
 /.vscode
 /screenshots
