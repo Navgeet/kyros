@@ -16,28 +16,71 @@ class SimpleSession:
         self.current_plan = None
         self.task_progress = {}  # {task_id: {status, stdout, stderr}}
         self._lock = threading.Lock()
+    
+    def get_current_status(self):
+        """Get real-time status including plan data from agent"""
+        with self._lock:
+            # Update plan and progress from agent in real-time
+            if hasattr(self.agent, 'current_plan') and self.agent.current_plan:
+                self.current_plan = self.agent.current_plan
+            
+            if hasattr(self.agent, 'task_status') and self.agent.task_status:
+                self.task_progress = self.agent.task_status
+            
+            return {
+                "status": self.status,
+                "current_task": self.current_task,
+                "current_plan": self.current_plan,
+                "task_progress": self.task_progress,
+                "result": self.result
+            }
 
     def execute_task_sync(self, task: str, max_retries: int = 3) -> bool:
-        """Execute a task synchronously and return success status"""
-        with self._lock:
-            self.current_task = task
-            self.status = "running"
-            self.current_plan = None
-            self.task_progress = {}
-        
+        """Execute a task synchronously and return success status"""        
         try:
+            # Update initial task status to show planning phase
+            with self._lock:
+                if "0" in self.task_progress:
+                    self.task_progress["0"]["stdout"] = ["Planning phase started..."]
+            
             # Hook into agent's plan generation and execution
             success = self.agent.run_task(task, max_retries)
             
-            # Try to extract plan data from agent if available
-            if hasattr(self.agent, 'last_plan') and self.agent.last_plan:
-                self.current_plan = self.agent.last_plan
-            elif hasattr(self.agent, 'executor') and hasattr(self.agent.executor, 'current_plan'):
-                self.current_plan = self.agent.executor.current_plan
-            
-            # Try to extract task progress from executor
-            if hasattr(self.agent, 'executor') and hasattr(self.agent.executor, 'task_status'):
-                self.task_progress = self.agent.executor.task_status
+            # Extract plan data from agent and merge with initial task
+            if hasattr(self.agent, 'current_plan') and self.agent.current_plan:
+                generated_plan = self.agent.current_plan
+                
+                # Create combined plan with user task as top level
+                combined_tasks = [{
+                    "id": "0",
+                    "name": task,
+                    "type": "user_task", 
+                    "dependencies": [],
+                    "subtasks": [str(t.get('id', '')) for t in generated_plan.get('tasks', [])]
+                }]
+                
+                # Add generated subtasks with updated IDs
+                for gen_task in generated_plan.get('tasks', []):
+                    gen_task_copy = gen_task.copy()
+                    combined_tasks.append(gen_task_copy)
+                
+                self.current_plan = {"tasks": combined_tasks}
+                
+                # Update task progress with generated tasks
+                if hasattr(self.agent, 'task_status') and self.agent.task_status:
+                    # Keep the initial task status and add generated ones
+                    for task_id, status in self.agent.task_status.items():
+                        self.task_progress[str(task_id)] = status
+                
+                # Update top-level task status based on execution result
+                with self._lock:
+                    if "0" in self.task_progress:
+                        if success:
+                            self.task_progress["0"]["status"] = "completed"
+                            self.task_progress["0"]["stdout"].append("Task completed successfully!")
+                        else:
+                            self.task_progress["0"]["status"] = "failed"  
+                            self.task_progress["0"]["stderr"] = ["Task execution failed"]
             
             with self._lock:
                 self.status = "completed" if success else "failed"
@@ -47,10 +90,42 @@ class SimpleSession:
             with self._lock:
                 self.status = "failed"
                 self.result = {"success": False, "task": task, "error": str(e)}
+                # Update top-level task to show failure
+                if "0" in self.task_progress:
+                    self.task_progress["0"]["status"] = "failed"
+                    self.task_progress["0"]["stderr"] = [str(e)]
             return False
+
+    def create_initial_task_structure(self, task: str):
+        """Create initial task structure immediately upon submission"""
+        with self._lock:
+            self.current_task = task
+            self.status = "running"
+            
+            # Create initial top-level task structure
+            self.current_plan = {
+                "tasks": [{
+                    "id": "0",
+                    "name": task,
+                    "type": "user_task",
+                    "dependencies": []
+                }]
+            }
+            
+            # Set initial task status
+            self.task_progress = {
+                "0": {
+                    "status": "running",
+                    "stdout": ["Task submitted, planning in progress..."],
+                    "stderr": []
+                }
+            }
 
     def start_task_async(self, task: str, max_retries: int = 3):
         """Start task execution in a background thread"""
+        # Create initial task structure immediately
+        self.create_initial_task_structure(task)
+        
         def run_task():
             self.execute_task_sync(task, max_retries)
         
@@ -90,18 +165,25 @@ class SimpleSessionManager:
         if not session:
             return {"error": "Session not found"}
         
+        # Get real-time status from session
+        status_data = session.get_current_status()
+        
         # Convert plan tasks to TaskNode format for frontend
         task_nodes = []
-        if session.current_plan and 'tasks' in session.current_plan:
-            for task in session.current_plan['tasks']:
+        current_plan = status_data.get('current_plan')
+        task_progress = status_data.get('task_progress', {})
+        
+        if current_plan and 'tasks' in current_plan:
+            for task in current_plan['tasks']:
                 task_id = str(task.get('id', ''))
-                progress = session.task_progress.get(task_id, {})
+                progress = task_progress.get(task_id, {})
                 
                 task_node = {
                     "id": task_id,
                     "name": task.get('name', f"Task {task_id}"),
                     "status": progress.get('status', 'pending'),
                     "dependencies": [str(dep) for dep in task.get('dependencies', [])],
+                    "subtasks": [str(sub) for sub in task.get('subtasks', [])],
                     "stdout": progress.get('stdout', []),
                     "stderr": progress.get('stderr', [])
                 }
@@ -109,10 +191,10 @@ class SimpleSessionManager:
         
         return {
             "session_id": session_id,
-            "status": session.status,
-            "current_task": session.current_task,
-            "result": session.result,
-            "plan": session.current_plan,
+            "status": status_data.get('status'),
+            "current_task": status_data.get('current_task'),
+            "result": status_data.get('result'),
+            "plan": current_plan,
             "task_nodes": task_nodes
         }
 

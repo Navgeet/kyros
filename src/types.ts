@@ -47,6 +47,7 @@ export interface TaskNode {
   name: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   dependencies: string[];
+  subtasks?: string[];
   level?: number;
   position?: { x: number; y: number };
   stdout?: string[];

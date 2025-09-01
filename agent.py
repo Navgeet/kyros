@@ -16,6 +16,10 @@ class AIAgent:
         self.session_id = session_id or str(uuid.uuid4())
         self.session_logger = get_session_logger(self.session_id)
         
+        # Store current plan and task status for external access
+        self.current_plan = None
+        self.task_status = {}  # {task_id: {status, stdout, stderr}}
+        
         agent_logger.info(f"AIAgent initialized with session_id: {self.session_id}")
         self.session_logger.info(f"New session started with Ollama URL: {ollama_url}")
     
@@ -52,6 +56,18 @@ class AIAgent:
                 self.session_logger.warning("PLANNING: Failed to generate plan")
                 print("❌ Failed to generate plan!")
                 continue
+            
+            # Store the plan for external access
+            self.current_plan = plan
+            # Initialize task status for all tasks
+            self.task_status = {}
+            for task in plan.get('tasks', []):
+                task_id = str(task.get('id', ''))
+                self.task_status[task_id] = {
+                    'status': 'pending',
+                    'stdout': [],
+                    'stderr': []
+                }
             
             # Log the generated plan
             task_names = [task.get('name', f"Task {task.get('id', 'unknown')}") for task in plan.get('tasks', [])]

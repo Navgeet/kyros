@@ -36,7 +36,7 @@ export default function TaskViewer({ onClose, tasks = [] }: TaskViewerProps) {
         }}
       >
         <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>
-          Task Execution Graph
+          Task Execution
         </h2>
         {onClose && (
           <button
