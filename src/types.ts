@@ -40,3 +40,14 @@ export interface MessagesResponse {
 }
 
 export type StatusType = 'ready' | 'working' | 'error';
+
+export interface TaskNode {
+  id: string;
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  dependencies: string[];
+  level?: number;
+  position?: { x: number; y: number };
+  stdout?: string[];
+  stderr?: string[];
+}

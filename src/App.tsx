@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Header from './components/Header';
 import ChatContainer from './components/ChatContainer';
 import Sidebar from './components/Sidebar';
+import TaskViewer from './components/TaskViewer';
 import { useSession } from './hooks/useSession';
 
 const App: React.FC = () => {
+  const [showTaskViewer, setShowTaskViewer] = useState(false);
   const {
     messages,
     status,
@@ -19,8 +21,20 @@ const App: React.FC = () => {
     submitTask(task);
   };
 
+  const handleShowTaskViewer = () => {
+    setShowTaskViewer(true);
+  };
+
+  const handleCloseTaskViewer = () => {
+    setShowTaskViewer(false);
+  };
+
+  if (showTaskViewer) {
+    return <TaskViewer onClose={handleCloseTaskViewer} />;
+  }
+
   return (
-    <div className="container">
+    <div className="container" onClick={handleShowTaskViewer}>
       <Header />
       <div className="main-content">
         <ChatContainer
