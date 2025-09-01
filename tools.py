@@ -80,9 +80,28 @@ class Tools:
             return False
     
     @staticmethod
-    def move_to(x: int, y: int) -> bool:
-        """Moves the mouse cursor to the specified coordinates."""
+    def move_to(x: Union[int, float], y: Union[int, float]) -> bool:
+        """Moves the mouse cursor to the specified coordinates.
+        
+        Args:
+            x: X coordinate. If int, absolute pixel coordinate. If float (0-1), relative to screen width.
+            y: Y coordinate. If int, absolute pixel coordinate. If float (0-1), relative to screen height.
+        """
         try:
+            # Get screen dimensions
+            screen_width, screen_height = pyautogui.size()
+            
+            # Convert relative coordinates to absolute if needed
+            if isinstance(x, float):
+                if not (0 <= x <= 1):
+                    raise ValueError(f"Relative x coordinate must be between 0 and 1, got {x}")
+                x = int(x * screen_width)
+            
+            if isinstance(y, float):
+                if not (0 <= y <= 1):
+                    raise ValueError(f"Relative y coordinate must be between 0 and 1, got {y}")
+                y = int(y * screen_height)
+            
             pyautogui.moveTo(x, y)
             time.sleep(0.1)  # Small delay after moving
             return True
@@ -91,9 +110,28 @@ class Tools:
             return False
     
     @staticmethod
-    def click(x: int, y: int) -> bool:
-        """Clicks at the specified coordinates."""
+    def click(x: Union[int, float], y: Union[int, float]) -> bool:
+        """Clicks at the specified coordinates.
+        
+        Args:
+            x: X coordinate. If int, absolute pixel coordinate. If float (0-1), relative to screen width.
+            y: Y coordinate. If int, absolute pixel coordinate. If float (0-1), relative to screen height.
+        """
         try:
+            # Get screen dimensions
+            screen_width, screen_height = pyautogui.size()
+            
+            # Convert relative coordinates to absolute if needed
+            if isinstance(x, float):
+                if not (0 <= x <= 1):
+                    raise ValueError(f"Relative x coordinate must be between 0 and 1, got {x}")
+                x = int(x * screen_width)
+            
+            if isinstance(y, float):
+                if not (0 <= y <= 1):
+                    raise ValueError(f"Relative y coordinate must be between 0 and 1, got {y}")
+                y = int(y * screen_height)
+            
             pyautogui.click(x, y)
             time.sleep(0.1)  # Small delay after clicking
             return True
