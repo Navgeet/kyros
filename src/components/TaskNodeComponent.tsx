@@ -18,6 +18,8 @@ export default function TaskNodeComponent({ data }: NodeProps<TaskNodeData>) {
         return '#F59E0B'; // amber
       case 'failed':
         return '#EF4444'; // red
+      case 'replan':
+        return '#8B5CF6'; // purple
       case 'pending':
       default:
         return '#6B7280'; // gray
@@ -40,6 +42,42 @@ export default function TaskNodeComponent({ data }: NodeProps<TaskNodeData>) {
     );
   };
 
+  const getTitle = () => {
+    // Check if this is a replan task (type: "plan" or status: "replan")
+    if (task.type === 'plan' || task.status === 'replan') {
+      return '🔄'; // Return just an icon for replan
+    }
+    // For tool_call type tasks, show the tool name
+    if (task.type === 'tool_call' && task.tool_name) {
+      return task.tool_name;
+    }
+    // Otherwise show the task name
+    return task.name;
+  };
+
+  const getSubtitle = () => {
+    // No subtitle for replan tasks
+    if (task.type === 'plan' || task.status === 'replan') {
+      return '';
+    }
+    // Only show params for tool_call type tasks
+    if (task.type === 'tool_call' && task.params) {
+      // Format params as a readable string
+      const paramEntries = Object.entries(task.params);
+      if (paramEntries.length === 0) return '';
+      
+      // Limit display to avoid overly long text
+      const shortParams = paramEntries.slice(0, 2).map(([key, value]) => {
+        const strValue = typeof value === 'string' ? value : JSON.stringify(value);
+        const shortValue = strValue.length > 20 ? strValue.substring(0, 20) + '...' : strValue;
+        return `${key}: ${shortValue}`;
+      }).join(', ');
+      
+      return paramEntries.length > 2 ? `${shortParams}...` : shortParams;
+    }
+    return '';
+  };
+
   return (
     <div
       onClick={onSelect}
@@ -60,15 +98,22 @@ export default function TaskNodeComponent({ data }: NodeProps<TaskNodeData>) {
       />
       
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-        {getStatusDot(task.status)}
-        <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
-          {task.name}
+        {!(task.type === 'plan' || task.status === 'replan') && getStatusDot(task.status)}
+        <div style={{ 
+          fontSize: (task.type === 'plan' || task.status === 'replan') ? '24px' : '14px', 
+          fontWeight: 'bold',
+          textAlign: (task.type === 'plan' || task.status === 'replan') ? 'center' : 'left',
+          width: (task.type === 'plan' || task.status === 'replan') ? '100%' : 'auto'
+        }}>
+          {getTitle()}
         </div>
       </div>
       
-      <div style={{ fontSize: '12px', color: '#6B7280' }}>
-        Status: {task.status}
-      </div>
+      {getSubtitle() && (
+        <div style={{ fontSize: '12px', color: '#6B7280' }}>
+          {getSubtitle()}
+        </div>
+      )}
       
       {task.dependencies.length > 0 && (
         <div style={{ fontSize: '11px', color: '#9CA3AF', marginTop: '4px' }}>

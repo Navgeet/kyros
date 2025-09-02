@@ -218,7 +218,9 @@ class SimpleSessionManager:
                     "subtasks": [str(sub) for sub in task.get('subtasks', [])],
                     "stdout": progress.get('stdout', []),
                     "stderr": progress.get('stderr', []),
-                    "thinking_content": progress.get('thinking_content', '')
+                    "thinking_content": progress.get('thinking_content', ''),
+                    "tool_name": task.get('tool_name'),
+                    "params": task.get('params')
                 }
                 task_nodes.append(task_node)
         

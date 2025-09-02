@@ -55,7 +55,7 @@ export interface TaskNode {
   id: string;
   name: string;
   type?: 'task' | 'tool_call' | 'plan' | 'user_task';
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'replan';
   dependencies: string[];
   subtasks?: string[];
   level?: number;
@@ -63,4 +63,6 @@ export interface TaskNode {
   stdout?: string[];
   stderr?: string[];
   thinking_content?: string;
+  tool_name?: string;
+  params?: any;
 }
