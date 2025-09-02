@@ -8,7 +8,7 @@ export const useSession = () => {
     {
       id: 'welcome',
       type: 'system',
-      content: 'Welcome to Kyros AI Agent! Enter a task to get started.',
+      content: 'Hi, how can I assist you today?',
       timestamp: new Date().toISOString(),
     }
   ]);
