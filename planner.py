@@ -163,6 +163,8 @@ Provide a concise description of what you see.
     
     def _generate_single_plan(self, user_input: str, conversation_history: List[Dict] = None, screen_context: str = "") -> str:
         try:
+            # Add OpenAI client import at the top if needed
+            from openai import OpenAI
 
             # Add conversation history and screen context as context if available
             context_section = ""
@@ -363,72 +365,61 @@ Now we add new tasks to replace the Plan task
 </UserInput>
 """
         
-
             planner_logger.info(f"prompt: {prompt}\n")
-            # # print prompt in yellow
-            # print(f"\033[93m{prompt}\033[0m")  # Yellow
-            # print()
-            response = requests.post(
-                f"{self.vllm_url}/v1/chat/completions",
-                json={
-                    "model": "Qwen/Qwen3-4B-Thinking-2507",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": True,
-                    "temperature": 0.6,
-                    "top_p": 0.95,
-                    "top_k": 20,
-                    "min_p": 0,
-                    "presence_penalty": 1,
-                    "stream": True
-                },
+            
+            # Use OpenAI client with vLLM endpoint like foo.py
+            client = OpenAI(
+                api_key="EMPTY",
+                base_url=self.vllm_url
             )
             
-            if response.status_code == 200:
-                full_response = ""
-                in_thinking = False
-                thinking_started = False
+            messages = [{"role": "user", "content": prompt}]
+            stream = client.chat.completions.create(
+                model="Qwen/Qwen3-4B-Thinking-2507",
+                messages=messages,
+                stream=True,
+                temperature=0.6,
+                top_p=0.95,
+                extra_body={
+                    "top_k": 20,
+                    "min_p": 0,
+                    "presence_penalty": 1
+                }
+            )
+            
+            print("🤖 Generating plan...")
+            printed_reasoning_content = False
+            printed_content = False
+            full_response = ""
+            
+            for chunk in stream:
+                reasoning_content = None
+                content = None
                 
-                for line in response.iter_lines():
-                    if line.startswith(b"data:"):
-                        data = line.decode()[5:].strip()
-                        if data == "[DONE]":
-                            break
-                        
-                        try:
-                            chunk = json.loads(data)
-                            delta = chunk["choices"][0]["delta"]
-                            
-                            # Handle reasoning content (thinking)
-                            reasoning_content = delta.get("reasoning_content", "")
-                            if reasoning_content:
-                                if not thinking_started:
-                                    print("💭 Thinking:")
-                                    thinking_started = True
-                                    in_thinking = True
-                                print(f"\033[90m{reasoning_content}\033[0m", end="", flush=True)
-                            
-                            # Handle regular content
-                            content = delta.get("content", "")
-                            if content:
-                                if in_thinking:
-                                    print()  # End thinking section with newline
-                                    in_thinking = False
-                                full_response += content
-                                
-                        except json.JSONDecodeError:
-                            continue
-                
-                # Use the full response as code since reasoning is handled separately
-                code = full_response.strip()
-                
-                return code
-            else:
-                print(f"Error: Ollama API returned status {response.status_code}")
-                return ""
+                # Check the content is reasoning_content or content
+                if hasattr(chunk.choices[0].delta, "reasoning_content"):
+                    reasoning_content = chunk.choices[0].delta.reasoning_content
+                elif hasattr(chunk.choices[0].delta, "content"):
+                    content = chunk.choices[0].delta.content
+
+                if reasoning_content is not None:
+                    if not printed_reasoning_content:
+                        printed_reasoning_content = True
+                        print("💭 Thinking:", end="", flush=True)
+                    print(f"\033[90m{reasoning_content}\033[0m", end="", flush=True)
+                elif content is not None:
+                    if not printed_content:
+                        printed_content = True
+                        print("\n📋 Plan:", end="", flush=True)
+                    print(content, end="", flush=True)
+                    full_response += content
+            
+            print()  # Final newline
+            return full_response.strip()
                 
         except Exception as e:
-            print(f"Error calling Ollama: {e}")
-            planner_logger.error(f"Error calling Ollama: {e}", exc_info=True)
+            print(f"Error calling vLLM: {e}")
+            planner_logger.error(f"Error calling vLLM: {e}", exc_info=True)
             raise
     
     def validate_plan(self, plan_json: str, user_input: str) -> bool:
