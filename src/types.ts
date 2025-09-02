@@ -10,7 +10,16 @@ export interface Message {
       name: string;
       level?: number;
       dependencies?: string[];
-    }>;
+    }> | {
+      tasks: Array<{
+        id?: string;
+        name: string;
+        type?: string;
+        level?: number;
+        dependencies?: string[];
+        subtasks?: string[];
+      }>;
+    };
     result?: {
       error?: string;
     };
@@ -45,6 +54,7 @@ export type StatusType = 'ready' | 'working' | 'error';
 export interface TaskNode {
   id: string;
   name: string;
+  type?: 'task' | 'tool_call' | 'plan' | 'user_task';
   status: 'pending' | 'running' | 'completed' | 'failed';
   dependencies: string[];
   subtasks?: string[];
@@ -52,4 +62,5 @@ export interface TaskNode {
   position?: { x: number; y: number };
   stdout?: string[];
   stderr?: string[];
+  thinking_content?: string;
 }

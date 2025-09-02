@@ -74,13 +74,18 @@ class Planner:
     def __init__(self, ollama_url: str = "http://localhost:11434", vllm_url: str = None):
         self.ollama_url = ollama_url
         self.vllm_url = vllm_url or ollama_url
+        self.streaming_callback = None
+    
+    def set_streaming_callback(self, callback):
+        """Set callback function to receive streaming output during planning"""
+        self.streaming_callback = callback
     
     def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None, regenerate_screen_context: bool = True) -> Dict:
         # Generate screen context only if requested (not during replanning)
         screen_context = ""
         if regenerate_screen_context:
             print("🔍 Analyzing screen...")
-            screen_context = self._generate_screen_context()
+            screen_context = "It is a calculator page" # self._generate_screen_context()
         else:
             print("🔄 Replanning without regenerating screen context...")
 
@@ -406,13 +411,25 @@ Now we add new tasks to replace the Plan task
                     if not printed_reasoning_content:
                         printed_reasoning_content = True
                         print("💭 Thinking:", end="", flush=True)
+                        # Call streaming callback for thinking header
+                        if self.streaming_callback:
+                            self.streaming_callback("thinking", "💭 Thinking:")
                     print(f"\033[90m{reasoning_content}\033[0m", end="", flush=True)
+                    # Call streaming callback for reasoning content
+                    if self.streaming_callback:
+                        self.streaming_callback("thinking", reasoning_content)
                 elif content is not None:
                     if not printed_content:
                         printed_content = True
                         print("\n📋 Plan:", end="", flush=True)
+                        # Call streaming callback for plan header
+                        if self.streaming_callback:
+                            self.streaming_callback("plan", "\n📋 Plan:")
                     print(content, end="", flush=True)
                     full_response += content
+                    # Call streaming callback for plan content
+                    if self.streaming_callback:
+                        self.streaming_callback("plan", content)
             
             print()  # Final newline
             return full_response.strip()

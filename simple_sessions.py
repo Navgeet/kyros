@@ -14,8 +14,39 @@ class SimpleSession:
         self.status = "idle"  # "idle", "running", "completed", "failed"
         self.result = None
         self.current_plan = None
-        self.task_progress = {}  # {task_id: {status, stdout, stderr}}
+        self.task_progress = {}  # {task_id: {status, stdout, stderr, thinking_content}}
+        self.current_thinking_task_id = None  # Track which task is currently thinking
         self._lock = threading.Lock()
+        
+        # Set up streaming callback for planning output
+        self.agent.set_streaming_callback(self._on_planning_stream)
+    
+    def _on_planning_stream(self, stream_type: str, content: str):
+        """Callback to handle streaming planning output"""
+
+        with self._lock:
+            # During planning, we're working on the top-level task (ID: "0")
+            task_id = "0"
+            
+            if task_id in self.task_progress:
+                if stream_type == "thinking":
+                    # Append thinking content to the task
+                    if "thinking_content" not in self.task_progress[task_id]:
+                        self.task_progress[task_id]["thinking_content"] = ""
+                    
+                    # Handle special thinking markers
+                    if content == "💭 Thinking:":
+                        self.task_progress[task_id]["thinking_content"] = "💭 Thinking:\n"
+                    else:
+                        self.task_progress[task_id]["thinking_content"] += content
+                        
+                elif stream_type == "plan":
+                    # Plan content goes to stdout
+                    if "\n📋 Plan:" in content:
+                        self.task_progress[task_id]["stdout"].append("📋 Plan generation started...")
+                    # We could also append plan content to stdout if desired
+            else:
+                print(f"DEBUG: Task {task_id} not found in task_progress", flush=True)
     
     def get_current_status(self):
         """Get real-time status including plan data from agent"""
@@ -181,11 +212,13 @@ class SimpleSessionManager:
                 task_node = {
                     "id": task_id,
                     "name": task.get('name', f"Task {task_id}"),
+                    "type": task.get('type', 'task'),
                     "status": progress.get('status', 'pending'),
                     "dependencies": [str(dep) for dep in task.get('dependencies', [])],
                     "subtasks": [str(sub) for sub in task.get('subtasks', [])],
                     "stdout": progress.get('stdout', []),
-                    "stderr": progress.get('stderr', [])
+                    "stderr": progress.get('stderr', []),
+                    "thinking_content": progress.get('thinking_content', '')
                 }
                 task_nodes.append(task_node)
         

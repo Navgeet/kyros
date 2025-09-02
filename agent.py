@@ -20,8 +20,16 @@ class AIAgent:
         self.current_plan = None
         self.task_status = {}  # {task_id: {status, stdout, stderr}}
         
+        # Callback for streaming output (thinking and regular output)
+        self.streaming_callback = None
+        
         agent_logger.info(f"AIAgent initialized with session_id: {self.session_id}")
         self.session_logger.info(f"New session started with Ollama URL: {ollama_url}")
+    
+    def set_streaming_callback(self, callback):
+        """Set callback function to receive streaming output during planning"""
+        self.streaming_callback = callback
+        self.planner.set_streaming_callback(callback)
     
     def run_task(self, user_input: str, max_retries: int = 3) -> bool:
         """Run a single task with the given user input."""
