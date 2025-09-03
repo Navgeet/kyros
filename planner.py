@@ -227,6 +227,15 @@ Return an array that can contain:
 
 You can mix messages and tasks in any order to provide user feedback and define actions.
 
+## Interpolation Support
+Messages support interpolation to reference task outputs:
+- `{{{{task.id}}}}` - References the task name
+- `{{{{task.id.stdout}}}}` - References the stdout output of a task
+- `{{{{task.id.stderr}}}}` - References the stderr output of a task
+- `{{{{task.id.property}}}}` - References any property of a task
+
+Example: "The result is {{task.1.stdout}}" will be replaced with the actual stdout of task 1.
+
 {context_section}
 
 <Examples>
@@ -367,6 +376,39 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 <Explain>
 After the first attempt, we got the coordinates of the search box from `query_screen`.
 Now we add new tasks to replace the Plan task
+</Explain>
+</Example>
+
+<Example>
+<Input>what is 2+2?</Input>
+<Output>
+```json
+[
+  {{
+    "tasks": [
+      {{
+        "id": 0,
+        "type": "task",
+        "name": "calculate 2+2",
+        "verify_screen_change": false,
+        "subtasks": [1]
+      }},
+      {{
+        "id": 1,
+        "type": "tool_call",
+        "tool_name": "add",
+        "params": {{"a": 2, "b": 2}}
+      }}
+    ]
+  }},
+  {{"message": "The result of 2+2 is {{{{task.1.stdout}}}}"}}
+]
+```
+</Output>
+<Explain>
+This example shows interpolation in a single plan. The message uses `{{{{task.1.stdout}}}}` to reference the output of the add tool call.
+When the agent processes this message after executing the tasks, it will replace `{{{{task.1.stdout}}}}` with "4", 
+so the user sees: "The result of 2+2 is 4"
 </Explain>
 </Example>
 </Examples>

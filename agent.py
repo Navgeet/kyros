@@ -66,24 +66,13 @@ class AIAgent:
                 continue
             
             # Process messages and extract tasks from the plan
-            messages, tasks = self._extract_messages_and_tasks(plan)
-            
-            # Display agent messages to user
-            for message in messages:
-                print(f"🤖 {message}")
-                self.session_logger.info(f"AGENT MESSAGE: {message}")
-                # Send message through streaming callback if available
-                if self.streaming_callback:
-                    self.streaming_callback("agent_message", message)
-            
-            if messages:
-                print()  # Add spacing after messages
+            raw_messages, tasks = self._extract_messages_and_tasks(plan)
             
             # Check if we have tasks to execute
-            if not tasks:
-                agent_logger.warning("No tasks found in plan")
-                self.session_logger.warning("PLANNING: No executable tasks found")
-                print("❌ No executable tasks found!")
+            if not tasks and not raw_messages:
+                agent_logger.warning("No tasks or messages found in plan")
+                self.session_logger.warning("PLANNING: No executable tasks or messages found")
+                print("❌ No executable tasks or messages found!")
                 continue
             
             # Create a tasks-only plan for execution
@@ -117,6 +106,19 @@ class AIAgent:
             success = self.executor.execute_plan(execution_plan)
             
             if success:
+                # Display interpolated agent messages after successful execution
+                if raw_messages:
+                    print()  # Add spacing before messages
+                    for raw_message in raw_messages:
+                        # Apply interpolation using the executed tasks
+                        interpolated_message = self._apply_interpolation(raw_message, execution_plan.get('tasks', []))
+                        print(f"🤖 {interpolated_message}")
+                        self.session_logger.info(f"AGENT MESSAGE: {interpolated_message}")
+                        # Send message through streaming callback if available
+                        if self.streaming_callback:
+                            self.streaming_callback("agent_message", interpolated_message)
+                    print()  # Add spacing after messages
+                
                 agent_logger.info("Task completed successfully")
                 self.session_logger.info("SUCCESS: Task completed successfully")
                 print("🎉 Task completed successfully!")
@@ -184,17 +186,56 @@ class AIAgent:
         return search_tasks(top_level_tasks, task_lookup)
     
     def _extract_messages_and_tasks(self, plan):
-        """Extract messages and tasks from the new mixed format plan."""
-        messages = []
+        """Extract raw messages and tasks from the new mixed format plan."""
+        raw_messages = []
         all_tasks = []
         
         for item in plan.get('items', []):
             if 'message' in item:
-                messages.append(item['message'])
+                # Store raw message without interpolation for now
+                raw_messages.append(item['message'])
             elif 'tasks' in item:
                 all_tasks.extend(item['tasks'])
         
-        return messages, all_tasks
+        return raw_messages, all_tasks
+    
+    def _apply_interpolation(self, message: str, tasks: list) -> str:
+        """Apply interpolation to agent messages, replacing {{task.id}} and {{task.id.stdout}} patterns."""
+        import re
+        
+        # Create a lookup table for tasks by id
+        task_lookup = {}
+        for task in tasks:
+            task_id = task.get('id')
+            if task_id is not None:
+                task_lookup[str(task_id)] = task
+        
+        # Pattern to match {{task.id}} or {{task.id.property}}
+        pattern = r'\{\{task\.(\d+)(?:\.(\w+))?\}\}'
+        
+        def replace_interpolation(match):
+            task_id = match.group(1)
+            property_name = match.group(2)
+            
+            if task_id not in task_lookup:
+                return f"{{task.{task_id} not found}}"
+            
+            task = task_lookup[task_id]
+            
+            if property_name is None:
+                # Return task name if no property specified
+                return task.get('name', f"Task {task_id}")
+            elif property_name == 'stdout':
+                return task.get('stdout', '')
+            elif property_name == 'stderr':
+                return task.get('stderr', '')
+            elif property_name in task:
+                return str(task.get(property_name, ''))
+            else:
+                return f"{{task.{task_id}.{property_name} not found}}"
+        
+        # Apply interpolation
+        return re.sub(pattern, replace_interpolation, message)
     
     def _filter_plan_tasks(self, tasks):
         """Remove Plan tasks from task hierarchy before adding to conversation history."""

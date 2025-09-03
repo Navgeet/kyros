@@ -175,7 +175,7 @@ class Executor:
             method = getattr(self.tools, tool_name)
             try:
                 # Special handling for tools that need task for output capture
-                if tool_name in ["run_shell_command", "query_screen"]:
+                if tool_name in ["run_shell_command", "query_screen", "add"]:
                     result = method(task=task, **params)
                 else:
                     result = method(**params)
