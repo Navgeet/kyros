@@ -74,9 +74,22 @@ export const useSession = () => {
         const statusMessage = result.messages[0];
         const metadata = statusMessage.metadata;
 
-        // Update task nodes for TaskViewer
-        if (metadata?.task_nodes) {
-          setTaskNodes(metadata.task_nodes);
+        // Convert plan tasks to TaskNode format for TaskViewer
+        if (metadata?.plan && 'tasks' in metadata.plan && metadata.plan.tasks) {
+          const taskNodes: TaskNode[] = metadata.plan.tasks.map((task: any) => ({
+            id: String(task.id || ''),
+            name: task.name || `Task ${task.id}`,
+            type: task.type || 'task',
+            status: task.status || 'pending',
+            dependencies: (task.dependencies || []).map(String),
+            subtasks: (task.subtasks || []).map(String),
+            stdout: task.stdout || [],
+            stderr: task.stderr || [],
+            thinking_content: task.thinking_content || '',
+            tool_name: task.tool_name,
+            params: task.params
+          }));
+          setTaskNodes(taskNodes);
         }
         
         // Process agent messages and add them as separate messages
@@ -150,9 +163,22 @@ export const useSession = () => {
           const statusMessage = result.messages[0];
           const metadata = statusMessage.metadata;
 
-          // Update task nodes for TaskViewer
-          if (metadata?.task_nodes) {
-            setTaskNodes(metadata.task_nodes);
+          // Convert plan tasks to TaskNode format for TaskViewer
+          if (metadata?.plan && 'tasks' in metadata.plan && metadata.plan.tasks) {
+            const taskNodes: TaskNode[] = metadata.plan.tasks.map((task: any) => ({
+              id: String(task.id || ''),
+              name: task.name || `Task ${task.id}`,
+              type: task.type || 'task',
+              status: task.status || 'pending',
+              dependencies: (task.dependencies || []).map(String),
+              subtasks: (task.subtasks || []).map(String),
+              stdout: task.stdout || [],
+              stderr: task.stderr || [],
+              thinking_content: task.thinking_content || '',
+              tool_name: task.tool_name,
+              params: task.params
+            }));
+            setTaskNodes(taskNodes);
           }
           
           // Process agent messages and add them as separate messages

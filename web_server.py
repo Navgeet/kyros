@@ -96,8 +96,7 @@ def get_messages(request: MessagesRequest):
     try:
         status = session_manager.get_session_status(request.session_id)
         
-        # Extract task_nodes for the TaskViewer
-        task_nodes = status.get('task_nodes', [])
+        # Get plan data for the TaskViewer
         
         # Convert status to message format for compatibility
         messages = [{
@@ -107,7 +106,6 @@ def get_messages(request: MessagesRequest):
             "timestamp": datetime.now().isoformat(),
             "metadata": {
                 **status,
-                "task_nodes": task_nodes,
                 "plan": status.get('plan')
             }
         }]

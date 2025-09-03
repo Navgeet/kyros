@@ -23,7 +23,6 @@ export interface Message {
     result?: {
       error?: string;
     };
-    task_nodes?: TaskNode[];
     agent_messages?: Array<{
       message: string;
       timestamp: number;
@@ -59,7 +58,7 @@ export interface TaskNode {
   id: string;
   name: string;
   type?: 'task' | 'tool_call' | 'plan' | 'user_task';
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'replan';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'replan' | 'success' | 'error';
   dependencies: string[];
   subtasks?: string[];
   level?: number;

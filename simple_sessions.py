@@ -210,30 +210,23 @@ class SimpleSessionManager:
         # Get real-time status from session
         status_data = session.get_current_status()
         
-        # Convert plan tasks to TaskNode format for frontend
-        task_nodes = []
+        # Get current plan and task progress for frontend
         current_plan = status_data.get('current_plan')
         task_progress = status_data.get('task_progress', {})
         
+        # Merge task progress data into plan tasks
         if current_plan and 'tasks' in current_plan:
             for task in current_plan['tasks']:
                 task_id = str(task.get('id', ''))
                 progress = task_progress.get(task_id, {})
                 
-                task_node = {
-                    "id": task_id,
-                    "name": task.get('name', f"Task {task_id}"),
-                    "type": task.get('type', 'task'),
-                    "status": progress.get('status', 'pending'),
-                    "dependencies": [str(dep) for dep in task.get('dependencies', [])],
-                    "subtasks": [str(sub) for sub in task.get('subtasks', [])],
-                    "stdout": progress.get('stdout', []),
-                    "stderr": progress.get('stderr', []),
-                    "thinking_content": progress.get('thinking_content', ''),
-                    "tool_name": task.get('tool_name'),
-                    "params": task.get('params')
-                }
-                task_nodes.append(task_node)
+                # Merge progress data into the task (stdout, stderr, thinking)
+                if progress:
+                    # Only override status from progress if it's more recent/accurate
+                    # The task in current_plan should already have the correct status from executor
+                    task['stdout'] = progress.get('stdout', [])
+                    task['stderr'] = progress.get('stderr', [])
+                    task['thinking_content'] = progress.get('thinking_content', '')
         
         return {
             "session_id": session_id,
@@ -241,7 +234,6 @@ class SimpleSessionManager:
             "current_task": status_data.get('current_task'),
             "result": status_data.get('result'),
             "plan": current_plan,
-            "task_nodes": task_nodes,
             "agent_messages": status_data.get('agent_messages', [])
         }
 

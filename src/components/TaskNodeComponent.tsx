@@ -13,10 +13,12 @@ export default function TaskNodeComponent({ data }: NodeProps<TaskNodeData>) {
   const getStatusColor = (status: TaskNode['status']) => {
     switch (status) {
       case 'completed':
+      case 'success':
         return '#10B981'; // green
       case 'running':
         return '#F59E0B'; // amber
       case 'failed':
+      case 'error':
         return '#EF4444'; // red
       case 'replan':
         return '#8B5CF6'; // purple
