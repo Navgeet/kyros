@@ -424,3 +424,38 @@ class Tools:
     def query_screen(query: str, task=None) -> str:
         """Ask questions about the screen using a vision model (defaults to Ollama)."""
         return Tools.query_vision_model(query, task=task, api_type="internlm", api_key="sk-QpCDT6MB54Yz31D6Cuw47puneTT9Yo5M4H61Pm7Nk1fY1CFM", api_url='https://chat.intern-ai.org.cn/api', model="internvl3.5-241b-a28b")
+
+    @staticmethod
+    def add(a: Union[int, float], b: Union[int, float], task=None) -> Union[int, float]:
+        """
+        Add two numbers together.
+        
+        Args:
+            a: First number (integer or float)
+            b: Second number (integer or float)
+            task: Optional task object to store output
+            
+        Returns:
+            Sum of a and b
+            
+        Raises:
+            TypeError: If inputs are not numeric
+        """
+        try:
+            # Validate inputs are numeric
+            if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+                raise TypeError(f"Both arguments must be numbers. Got: a={type(a)}, b={type(b)}")
+            
+            result = a + b
+            print(f"add({a}, {b}) = {result}")
+            
+            # Store result in task if provided
+            Tools._set_task_output(task, stdout=str(result))
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Error in add({a}, {b}): {e}"
+            print(error_msg)
+            Tools._set_task_output(task, stderr=error_msg)
+            raise
