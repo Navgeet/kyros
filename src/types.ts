@@ -1,6 +1,6 @@
 export interface Message {
   id: string;
-  type: 'user' | 'system' | 'error' | 'status' | 'execution';
+  type: 'user' | 'system' | 'error' | 'status' | 'execution' | 'agent';
   content: string;
   timestamp: string;
   metadata?: {
@@ -24,6 +24,10 @@ export interface Message {
       error?: string;
     };
     task_nodes?: TaskNode[];
+    agent_messages?: Array<{
+      message: string;
+      timestamp: number;
+    }>;
   };
 }
 

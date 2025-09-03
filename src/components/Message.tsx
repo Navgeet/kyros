@@ -10,6 +10,7 @@ const Message: React.FC<MessageProps> = ({ message }) => {
     switch (type) {
       case 'user': return 'You';
       case 'system': return 'Agent';
+      case 'agent': return 'Agent';
       case 'error': return 'Error';
       case 'status': return 'Status';
       case 'execution': return 'Execution';

@@ -16,6 +16,7 @@ class SimpleSession:
         self.current_plan = None
         self.task_progress = {}  # {task_id: {status, stdout, stderr, thinking_content}}
         self.current_thinking_task_id = None  # Track which task is currently thinking
+        self.agent_messages = []  # Store agent messages for frontend display
         self._lock = threading.Lock()
         
         # Set up streaming callback for planning output
@@ -45,6 +46,12 @@ class SimpleSession:
                     if "\n📋 Plan:" in content:
                         self.task_progress[task_id]["stdout"].append("📋 Plan generation started...")
                     # We could also append plan content to stdout if desired
+                elif stream_type == "agent_message":
+                    # Store agent messages for frontend display
+                    self.agent_messages.append({
+                        "message": content,
+                        "timestamp": threading.current_thread().ident  # Simple timestamp
+                    })
             else:
                 print(f"DEBUG: Task {task_id} not found in task_progress", flush=True)
     
@@ -63,7 +70,8 @@ class SimpleSession:
                 "current_task": self.current_task,
                 "current_plan": self.current_plan,
                 "task_progress": self.task_progress,
-                "result": self.result
+                "result": self.result,
+                "agent_messages": self.agent_messages
             }
 
     def execute_task_sync(self, task: str, max_retries: int = 3) -> bool:
@@ -132,6 +140,9 @@ class SimpleSession:
         with self._lock:
             self.current_task = task
             self.status = "running"
+            
+            # Clear previous agent messages for new task
+            self.agent_messages = []
             
             # Create initial top-level task structure
             self.current_plan = {
@@ -230,7 +241,8 @@ class SimpleSessionManager:
             "current_task": status_data.get('current_task'),
             "result": status_data.get('result'),
             "plan": current_plan,
-            "task_nodes": task_nodes
+            "task_nodes": task_nodes,
+            "agent_messages": status_data.get('agent_messages', [])
         }
 
     def get_stats(self) -> Dict:

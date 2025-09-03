@@ -85,7 +85,8 @@ class Planner:
         screen_context = ""
         if regenerate_screen_context:
             print("🔍 Analyzing screen...")
-            screen_context = "It is a calculator page" # self._generate_screen_context()
+            screen_context = '' # 'The image shows a web page titled "testsheepnz.github.io/BasicCalculator.html." The page is a basic calculator with a simple interface. Here is a detailed breakdown:\n\n1. **Applications/Windows**:\n   - The main application is a web browser displaying a calculator page.\n   - There are multiple tabs open in the browser, including "1 (1) WhatsApp," "Basic Calculator," "Imported," "Baka-Updates - M...," "Don\'t use Mongo...," "GeoSpatial Index...," "git.rsbx.net/Docu...", "How to Beat Pro...", "How To Make Yo...", "http-headers-stat...", and "All Bookmarks."\n\n2. **UI Elements**:\n   - **Text Fields**:\n     - Two input fields for "First number" and "Second number."\n     - A dropdown menu for selecting the operation (e.g., "Add," "Subtract," "Multiply," "Divide").\n     - An input field for the answer.\n   - **Buttons**:\n     - A "Calculate" button to perform the operation.\n     - A "Clear" button to clear the input fields.\n   - **Labels**:\n     - Labels for "First number," "Second number," and "Operation."\n     - A checkbox labeled "Integer only."\n   - **Navigation**:\n     - A menu bar at the top with options like "Home," "Search," and "More."\n     - A search bar at the top.\n     - A menu icon for more options.\n     - A "Finish update" button at the top right.\n\n3. **Current State of the Desktop/Applications**:\n   - The desktop is open to a web browser with multiple tabs open.\n   - The main focus is on the calculator page, which is a basic HTML page with a simple calculator interface.\n   - The browser is likely being used for web development or testing purposes.\n\n4. **Relevant Context for Task Planning**:\n   - The user is likely testing or developing a basic calculator web page.\n   - The presence of multiple tabs suggests that the user might be testing different functionalities or debugging issues.\n   - The "Finish update" button indicates that the user might be in the process of finalizing or updating the page.\n\nThis description provides a comprehensive overview of the current state of the screen and the context in which it is being used.'
+            # screen_context = self._generate_screen_context()
         else:
             print("🔄 Replanning without regenerating screen context...")
 
@@ -99,6 +100,19 @@ class Planner:
             
             try:
                 parsed_plan = self._parse_json_plan_to_dict(plan_json)
+                
+                # Try to improve the plan using LLM
+                try:
+                    improved_plan_json = self._improve_plan(plan_json, user_input, conversation_history)
+                    if improved_plan_json:
+                        improved_parsed_plan = self._parse_json_plan_to_dict(improved_plan_json)
+                        print("✨ Plan improved successfully")
+                        return improved_parsed_plan
+                    else:
+                        print("⚠️ Plan improvement failed, using original plan")
+                except Exception as improve_error:
+                    print(f"⚠️ Plan improvement error: {improve_error}, using original plan")
+                
                 return parsed_plan
             except Exception as e:
                 print(f"Error parsing plan JSON: {e}")
@@ -158,7 +172,17 @@ Provide a concise description of what you see.
                 plan_json = plan_json.split('```')[1].split('```')[0].strip()
             
             plan_data = json.loads(plan_json)
-            return plan_data
+            
+            # Handle both old format ({"tasks": [...]}) and new format ([{message: "..."}, {tasks: [...]}])
+            if isinstance(plan_data, list):
+                # New format: array of messages and task objects
+                return {"items": plan_data}
+            elif "tasks" in plan_data:
+                # Old format: wrap in items for consistency
+                return {"items": [{"tasks": plan_data["tasks"]}]}
+            else:
+                # Direct task list format
+                return {"items": [{"tasks": plan_data}]}
             
         except json.JSONDecodeError as e:
             raise Exception(f"Invalid JSON format: {e}")
@@ -196,7 +220,12 @@ PLAN: Given a user request and screen context, generate tasks to accomplish it.
 REPLAN: given previous executed tasks, 
     analyze the output and create new tasks to accomplish the user request.
     If you cannot complete a task, create `Task` nodes for some steps and then create a `Plan` node to trigger replanning.
-Return the JSON representation of tasks only.
+
+Return an array that can contain:
+- Message objects: {{"message": "response to user"}} - for communicating with the user
+- Task objects: {{"tasks": [...]}} - for defining executable tasks
+
+You can mix messages and tasks in any order to provide user feedback and define actions.
 
 {context_section}
 
@@ -205,64 +234,67 @@ Return the JSON representation of tasks only.
 <Input>search google for restaurants near me</Input>
 <Output>
 ```json
-{{
-  "tasks": [
-    {{
-      "id": 0,
-      "type": "task",
-      "name": "search google for restaurants near me",
-      "verify_screen_change": false,
-      "subtasks": [1, 2, 3],
-    }},
-    {{
-      "id": 1,
-      "type": "task", 
-      "name": "focus chrome window",
-      "verify_screen_change": true,
-      "subtasks": [4],
-    }},
-    {{
-      "id": 2,
-      "type": "task",
-      "name": "open new tab", 
-      "verify_screen_change": true,
-      "subtasks": [5],
-      "dependencies": [1]
-    }},
-    {{
-      "id": 3,
-      "type": "task",
-      "name": "type query and press enter",
-      "verify_screen_change": true, 
-      "subtasks": [6, 7],
-      "dependencies": [2]
-    }},
-    {{
-      "id": 4,
-      "type": "tool_call",
-      "tool_name": "focus_window",
-      "params": {{"name": "chrome"}},
-    }},
-    {{
-      "id": 5,
-      "type": "tool_call",
-      "tool_name": "hotkey",
-      "params": {{"keys": "ctrl+t"}},
-    }},
-    {{
-      "id": 6,
-      "type": "tool_call",
-      "tool_name": "type",
-      "params": {{"text": "restaurants near me"}},
-    }},
-    {{
-      "id": 7,
-      "type": "tool_call", 
-      "tool_name": "hotkey",
-      "params": {{"keys": "enter"}},
-    }}
-  ]
-}}
+[
+  {{"message": "I'll help you search for restaurants on Google. Let me open a new tab and perform the search."}},
+  {{
+    "tasks": [
+      {{
+        "id": 0,
+        "type": "task",
+        "name": "search google for restaurants near me",
+        "verify_screen_change": false,
+        "subtasks": [1, 2, 3],
+      }},
+      {{
+        "id": 1,
+        "type": "task", 
+        "name": "focus chrome window",
+        "verify_screen_change": true,
+        "subtasks": [4],
+      }},
+      {{
+        "id": 2,
+        "type": "task",
+        "name": "open new tab", 
+        "verify_screen_change": true,
+        "subtasks": [5],
+        "dependencies": [1]
+      }},
+      {{
+        "id": 3,
+        "type": "task",
+        "name": "type query and press enter",
+        "verify_screen_change": true, 
+        "subtasks": [6, 7],
+        "dependencies": [2]
+      }},
+      {{
+        "id": 4,
+        "type": "tool_call",
+        "tool_name": "focus_window",
+        "params": {{"name": "chrome"}},
+      }},
+      {{
+        "id": 5,
+        "type": "tool_call",
+        "tool_name": "hotkey",
+        "params": {{"keys": "ctrl+t"}},
+      }},
+      {{
+        "id": 6,
+        "type": "tool_call",
+        "tool_name": "type",
+        "params": {{"text": "restaurants near me"}},
+      }},
+      {{
+        "id": 7,
+        "type": "tool_call", 
+        "tool_name": "hotkey",
+        "params": {{"keys": "enter"}},
+      }}
+    ]
+  }}
+]
 ```
 </Output>
 </Example>
@@ -270,28 +302,31 @@ Return the JSON representation of tasks only.
 <Input>click on the search box</Input>
 <Output>
 ```json
-{{
-  "tasks": [
-    {{
-      "id": 0,
-      "type": "task",
-      "name": "click on the search box",
-      "verify_screen_change": true,
-      "subtasks": [1, 2],
-    }},
-    {{
-      "id": 1,
-      "type": "tool_call",
-      "tool_name": "query_screen",
-      "params": {{"query": "locate the search box"}},
-    }},
-    {{
-      "id": 2,
-      "type": "plan",
-      "dependencies": [1],
-    }}
-  ]
-}}
+[
+  {{"message": "I need to locate the search box first, then I'll click on it."}},
+  {{
+    "tasks": [
+      {{
+        "id": 0,
+        "type": "task",
+        "name": "click on the search box",
+        "verify_screen_change": true,
+        "subtasks": [1, 2],
+      }},
+      {{
+        "id": 1,
+        "type": "tool_call",
+        "tool_name": "query_screen",
+        "params": {{"query": "locate the search box"}},
+      }},
+      {{
+        "id": 2,
+        "type": "plan",
+        "dependencies": [1],
+      }}
+    ]
+  }}
+]
 ```
 </Output>
 <Explain>
@@ -317,13 +352,16 @@ On the next iteration, the agent will analyze the output of `query_screen` and c
 </State>
 <Output>
 ```json
-{{
-  "tasks": [
-    {{"id": 0, "type": "task", "name": "click on the search box", "verify_screen_change": true, "subtasks": [1, 2]}},
-    {{"id": 1, "type": "tool_call", "tool_name": "query_screen", "params": {{"query": "locate the search box"}}, "status": "success", "stdout": "click(x=0.4089, y=0.6493)"}},
-    {{"id": 2, "type": "tool_call", "tool_name": "click", "params": {{"x": 0.4089, "y": 0.6493}}, "verify_screen_change": true, "dependencies": [1]}},
-  ]
-}}
+[
+  {{"message": "Great! I found the search box coordinates. Now I'll click on it."}},
+  {{
+    "tasks": [
+      {{"id": 0, "type": "task", "name": "click on the search box", "verify_screen_change": true, "subtasks": [1, 2]}},
+      {{"id": 1, "type": "tool_call", "tool_name": "query_screen", "params": {{"query": "locate the search box"}}, "status": "success", "stdout": "click(x=0.4089, y=0.6493)"}},
+      {{"id": 2, "type": "tool_call", "tool_name": "click", "params": {{"x": 0.4089, "y": 0.6493}}, "verify_screen_change": true, "dependencies": [1]}},
+    ]
+  }}
+]
 ```
 </Output>
 <Explain>
@@ -353,6 +391,7 @@ Now we add new tasks to replace the Plan task
 
 **Process management**
 - run_shell_command(args): Run a shell command
+
 </Tools>
 
 <Rules>
@@ -439,6 +478,73 @@ Now we add new tasks to replace the Plan task
             planner_logger.error(f"Error calling vLLM: {e}", exc_info=True)
             raise
     
+    def _improve_plan(self, plan_json: str, user_input: str, conversation_history: List[Dict] = None) -> str:
+        """Improve the generated plan by calling LLM with a sample prompt."""
+        
+        # Add conversation history as context if available
+        context_section = ""
+        if conversation_history:
+            state_json = json.dumps(conversation_history, indent=2)
+            context_section = f"""
+<State>
+{state_json}
+</State>
+"""
+        
+        improvement_prompt = f"""
+<Instruction>
+You are a plan optimization expert. Your task is to analyze and improve the given task plan.
+
+Rules:
+1. **Efficiency**: Instead of making several calls to vision tools, can we fetch the required info in 1 call?
+
+If the plan is already optimal, return the original plan unchanged.
+Return only the improved JSON plan wrapped in ```json code blocks.
+</Instruction>
+
+{context_section}
+
+<UserRequest>
+{user_input}
+</UserRequest>
+
+<OriginalPlan>
+{plan_json}
+</OriginalPlan>
+"""
+
+        try:
+            from openai import OpenAI
+            
+            client = OpenAI(
+                api_key="EMPTY",
+                base_url=self.vllm_url
+            )
+            
+            messages = [{"role": "user", "content": improvement_prompt}]
+            response = client.chat.completions.create(
+                model="Qwen/Qwen3-4B-Thinking-2507",
+                messages=messages,
+                stream=False,
+                temperature=0.6,
+                top_p=0.95,
+                extra_body={
+                    "top_k": 20,
+                    "min_p": 0,
+                    "presence_penalty": 1
+                }
+            )
+            
+            improved_plan = response.choices[0].message.content.strip()
+            print("🔄 Plan improvement completed")
+            planner_logger.info(f"Improved plan: {improved_plan}")
+            return improved_plan
+            
+        except Exception as e:
+            print(f"Error improving plan: {e}")
+            planner_logger.error(f"Error improving plan: {e}", exc_info=True)
+            return ""
+
     def validate_plan(self, plan_json: str, user_input: str) -> bool:
         """Validate if the generated JSON plan follows the rules and accomplishes the user request."""
         

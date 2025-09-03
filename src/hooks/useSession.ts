@@ -18,6 +18,7 @@ export const useSession = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
   const [taskNodes, setTaskNodes] = useState<TaskNode[]>([]);
+  const processedAgentMessagesRef = useRef<Set<string>>(new Set());
   
   const pollingRef = useRef<number | null>(null);
 
@@ -76,6 +77,18 @@ export const useSession = () => {
         // Update task nodes for TaskViewer
         if (metadata?.task_nodes) {
           setTaskNodes(metadata.task_nodes);
+        }
+        
+        // Process agent messages and add them as separate messages
+        if (metadata?.agent_messages && metadata.agent_messages.length > 0) {
+          metadata.agent_messages.forEach((agentMsg) => {
+            // Create a unique key for this message based on content and timestamp
+            const messageKey = `${agentMsg.message}_${agentMsg.timestamp}`;
+            if (!processedAgentMessagesRef.current.has(messageKey)) {
+              processedAgentMessagesRef.current.add(messageKey);
+              addMessage('agent', agentMsg.message);
+            }
+          });
         }
 
         if (metadata?.status) {
@@ -140,6 +153,18 @@ export const useSession = () => {
           // Update task nodes for TaskViewer
           if (metadata?.task_nodes) {
             setTaskNodes(metadata.task_nodes);
+          }
+          
+          // Process agent messages and add them as separate messages
+          if (metadata?.agent_messages && metadata.agent_messages.length > 0) {
+            metadata.agent_messages.forEach((agentMsg) => {
+              // Create a unique key for this message based on content and timestamp
+              const messageKey = `${agentMsg.message}_${agentMsg.timestamp}`;
+              if (!processedAgentMessagesRef.current.has(messageKey)) {
+                processedAgentMessagesRef.current.add(messageKey);
+                addMessage('agent', agentMsg.message);
+              }
+            });
           }
 
           if (metadata?.status) {
@@ -217,6 +242,9 @@ export const useSession = () => {
     setIsTaskRunning(true);
     setIsLoading(true);
     updateStatus('working', 'Starting task...');
+    
+    // Clear processed agent messages for new task
+    processedAgentMessagesRef.current.clear();
 
     try {
       const result = await api.executeTask({

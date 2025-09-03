@@ -59,17 +59,41 @@ class AIAgent:
             is_replanning = attempt > 0
             plan = self.planner.generate_plan(user_input, conversation_history=self.conversation_history, regenerate_screen_context=not is_replanning)
             
-            if not plan or not plan.get('tasks'):
+            if not plan or not plan.get('items'):
                 agent_logger.warning("Failed to generate plan")
                 self.session_logger.warning("PLANNING: Failed to generate plan")
                 print("❌ Failed to generate plan!")
                 continue
             
+            # Process messages and extract tasks from the plan
+            messages, tasks = self._extract_messages_and_tasks(plan)
+            
+            # Display agent messages to user
+            for message in messages:
+                print(f"🤖 {message}")
+                self.session_logger.info(f"AGENT MESSAGE: {message}")
+                # Send message through streaming callback if available
+                if self.streaming_callback:
+                    self.streaming_callback("agent_message", message)
+            
+            if messages:
+                print()  # Add spacing after messages
+            
+            # Check if we have tasks to execute
+            if not tasks:
+                agent_logger.warning("No tasks found in plan")
+                self.session_logger.warning("PLANNING: No executable tasks found")
+                print("❌ No executable tasks found!")
+                continue
+            
+            # Create a tasks-only plan for execution
+            execution_plan = {"tasks": tasks}
+            
             # Store the plan for external access
-            self.current_plan = plan
+            self.current_plan = execution_plan
             # Initialize task status for all tasks
             self.task_status = {}
-            for task in plan.get('tasks', []):
+            for task in execution_plan.get('tasks', []):
                 task_id = str(task.get('id', ''))
                 self.task_status[task_id] = {
                     'status': 'pending',
@@ -78,30 +102,30 @@ class AIAgent:
                 }
             
             # Log the generated plan
-            task_names = [task.get('name', f"Task {task.get('id', 'unknown')}") for task in plan.get('tasks', [])]
-            agent_logger.info(f"Generated plan with {len(plan.get('tasks', []))} tasks: {task_names}")
-            self.session_logger.info(f"PLAN GENERATED: {len(plan.get('tasks', []))} tasks - {task_names}")
+            task_names = [task.get('name', f"Task {task.get('id', 'unknown')}") for task in execution_plan.get('tasks', [])]
+            agent_logger.info(f"Generated plan with {len(execution_plan.get('tasks', []))} tasks: {task_names}")
+            self.session_logger.info(f"PLAN GENERATED: {len(execution_plan.get('tasks', []))} tasks - {task_names}")
             
             print("📋 Generated plan:")
-            self._print_json_plan(plan)
+            self._print_json_plan(execution_plan)
             print()
             
             # Execute phase
             agent_logger.info("Starting execution phase")
             self.session_logger.info("EXECUTION: Starting plan execution")
             print("⚙️  Executing...")
-            success = self.executor.execute_plan(plan)
+            success = self.executor.execute_plan(execution_plan)
             
             if success:
                 agent_logger.info("Task completed successfully")
                 self.session_logger.info("SUCCESS: Task completed successfully")
                 print("🎉 Task completed successfully!")
                 # Add successful plan to conversation history
-                self.conversation_history.append({"from": "system", "plan": plan})
+                self.conversation_history.append({"from": "system", "plan": execution_plan})
                 return True
             else:
                 # Check if any task has replan status (Plan task encountered)
-                replan_task = self._find_replan_task(plan)
+                replan_task = self._find_replan_task(execution_plan)
                 if replan_task:
                     agent_logger.info(f"Plan task detected, replanning with original user input")
                     self.session_logger.info(f"REPLAN: Using original user input for Plan task")
@@ -118,7 +142,7 @@ class AIAgent:
                     else:
                         print("🔄 Going back to planning...")
                     # Add plan with status info to conversation history
-                    self.conversation_history.append({"from": "system", "plan": plan})
+                    self.conversation_history.append({"from": "system", "plan": execution_plan})
                     print()
         
         agent_logger.error("Task failed after all retry attempts")
@@ -158,6 +182,19 @@ class AIAgent:
         top_level_tasks = [task for task in tasks if task.get('id', 0) not in subtask_ids]
         
         return search_tasks(top_level_tasks, task_lookup)
+    
+    def _extract_messages_and_tasks(self, plan):
+        """Extract messages and tasks from the new mixed format plan."""
+        messages = []
+        all_tasks = []
+        
+        for item in plan.get('items', []):
+            if 'message' in item:
+                messages.append(item['message'])
+            elif 'tasks' in item:
+                all_tasks.extend(item['tasks'])
+        
+        return messages, all_tasks
     
     def _filter_plan_tasks(self, tasks):
         """Remove Plan tasks from task hierarchy before adding to conversation history."""
