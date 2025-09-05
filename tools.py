@@ -423,7 +423,10 @@ class Tools:
     @staticmethod
     def query_screen(query: str, task=None) -> str:
         """Ask questions about the screen using a vision model (defaults to Ollama)."""
-        return Tools.query_vision_model(query, task=task, api_type="internlm", api_key="sk-QpCDT6MB54Yz31D6Cuw47puneTT9Yo5M4H61Pm7Nk1fY1CFM", api_url='https://chat.intern-ai.org.cn/api', model="internvl3.5-241b-a28b")
+        api_key = os.getenv("INTERNLM_API_KEY")
+        if not api_key:
+            raise ValueError("INTERNLM_API_KEY environment variable not set")
+        return Tools.query_vision_model(query, task=task, api_type="internlm", api_key=api_key, api_url='https://chat.intern-ai.org.cn/api', model="internvl3.5-241b-a28b")
 
     @staticmethod
     def add(a: Union[int, float], b: Union[int, float], task=None) -> Union[int, float]:
