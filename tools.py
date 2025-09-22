@@ -345,7 +345,7 @@ class Tools:
             img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
             
             # Format query with bbox instruction if needed
-            formatted_query = f"Instruct: If asked to find/locate/search for something, then just return a point for clicking example output: <action>click(x=0.3797, y=0.7417)</action>. Use the grid lines for estimating the point. The grid divides the screen into a 10x10 grid where each cell represents 10% of the width and height\nQuery: {query}"
+            # formatted_query = f"Instruct: If asked to find/locate/search for something, then just return a point for clicking example output: <action>click(x=0.3797, y=0.7417)</action>. Use the grid lines for estimating the point. The grid divides the screen into a 10x10 grid where each cell represents 10% of the width and height\nQuery: {query}"
             
             if api_type.lower() == "internlm":
                 # InternLM API (OpenAI-compatible)
@@ -364,7 +364,7 @@ class Tools:
                         {
                             "role": "user", 
                             "content": [
-                                {"type": "text", "text": formatted_query},
+                                {"type": "text", "text": query},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
                             ]
                         }
@@ -456,9 +456,23 @@ class Tools:
             Tools._set_task_output(task, stdout=str(result))
             
             return result
-            
         except Exception as e:
             error_msg = f"Error in add({a}, {b}): {e}"
             print(error_msg)
             Tools._set_task_output(task, stderr=error_msg)
             raise
+
+# Module-level function aliases for direct import usage
+focus_window = Tools.focus_window
+launch = Tools.launch
+hotkey = Tools.hotkey
+move_to = Tools.move_to
+click = Tools.click
+type = Tools.type
+screenshot = Tools.screenshot
+compare_screenshots = Tools.compare_screenshots
+run_shell_command = Tools.run_shell_command
+query_screen_internlm = Tools.query_screen_internlm
+query_vision_model = Tools.query_vision_model
+query_screen = Tools.query_screen
+add = Tools.add

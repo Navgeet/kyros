@@ -8,7 +8,11 @@ tmp/
 
 CLAUDE.md
 claude.md
+.claude
 
 /__pycache__
 /.vscode
 /screenshots
+
+/v2/conversations
+/v2/screenshots
