@@ -1,0 +1,224 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kyros-autoglm"
+version = "0.1.0"
+description = "Standalone AutoGLM agent for desktop automation"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Kyros Project", email = "kyros@example.com"}
+]
+maintainers = [
+    {name = "Kyros Project", email = "kyros@example.com"}
+]
+keywords = [
+    "automation",
+    "desktop",
+    "ai",
+    "agent",
+    "multimodal",
+    "gui",
+    "accessibility",
+    "computer-vision"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Desktop Environment",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "Pillow>=9.0.0",
+    "pyautogui>=0.9.54",
+    "psutil>=5.8.0",
+    "requests>=2.25.0",
+    "pygobject==3.50.0",
+]
+
+[project.optional-dependencies]
+llm = [
+    "openai>=1.0.0",
+    "anthropic>=0.3.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "isort>=5.10.0",
+    "flake8>=5.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=2.20.0",
+]
+vision = [
+    "opencv-python>=4.5.0",
+]
+logging = [
+    "coloredlogs>=15.0",
+]
+all = [
+    "kyros-autoglm[llm,dev,vision,logging]"
+]
+
+[project.urls]
+Homepage = "https://github.com/kyros-project/kyros-autoglm"
+Repository = "https://github.com/kyros-project/kyros-autoglm.git"
+Documentation = "https://kyros-autoglm.readthedocs.io"
+Changelog = "https://github.com/kyros-project/kyros-autoglm/blob/main/CHANGELOG.md"
+"Bug Tracker" = "https://github.com/kyros-project/kyros-autoglm/issues"
+
+[project.scripts]
+kyros-example = "example_usage:main"
+kyros-working = "working_example:main"
+
+[project.entry-points."console_scripts"]
+kyros-autoglm = "working_example:main"
+
+[tool.setuptools]
+packages = ["autoglm", "autoglm.prompt"]
+
+[tool.setuptools.package-dir]
+autoglm = "autoglm"
+
+[tool.setuptools.package-data]
+autoglm = ["py.typed"]
+
+# Black configuration
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "PIL.*",
+    "pyautogui.*",
+]
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=autoglm",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["autoglm"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "example_usage.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+# Flake8 configuration
+[tool.flake8]
+max-line-length = 100
+extend-ignore = [
+    "E203",  # whitespace before ':'
+    "E501",  # line too long (handled by black)
+    "W503",  # line break before binary operator
+]
+per-file-ignores = [
+    "__init__.py:F401",  # imported but unused
+]
+
+# Ruff configuration (alternative to flake8)
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]

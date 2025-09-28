@@ -1,0 +1,15 @@
+# Core dependencies for Kyros AutoGLM agent
+pillow>=9.0.0
+pyautogui>=0.9.54
+psutil>=5.8.0
+requests>=2.25.0
+
+# Optional dependencies for better performance
+opencv-python>=4.5.0  # For advanced image processing (optional)
+
+# System packages needed (install via apt):
+# - wmctrl: sudo apt-get install wmctrl
+# - x11-utils: sudo apt-get install x11-utils
+# - at-spi2-core: sudo apt-get install at-spi2-core
+# - python3-gi: sudo apt-get install python3-gi
+# - gir1.2-atspi-2.0: sudo apt-get install gir1.2-atspi-2.0
