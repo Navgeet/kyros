@@ -302,14 +302,20 @@ print(f'Scroll Success at relative ({x}, {y}) -> absolute ({{abs_x}}, {{abs_y}})
 
     @classmethod
     @agent_action
-    def exit(cls, success: bool):
+    def exit(cls, success: bool, message: str = ""):
         """
         End the current task.
 
         Args:
             success (bool): True if successfully finish a task, otherwise set it False
+            message (str): Optional message to log when exiting
         """
-        if success:
-            return "DONE"
+        if message:
+            exit_code = f"print('{message}'); "
         else:
-            return "FAIL"
+            exit_code = ""
+
+        if success:
+            return exit_code + "DONE"
+        else:
+            return exit_code + "FAIL"

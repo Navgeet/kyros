@@ -168,8 +168,8 @@ def get_note_prompt(client_password="password", relative_coordinate=True):
 - Each code block is context independent, and variables from the previous round cannot be used in the next round.
 - Do not put anything other than python code in ```python```.
 - You **can only use the above methods to interact with the UI**, do not invent new methods.
-- Return with `Agent.exit(success=True)` immediately after the task is completed.
-- If you think cannot complete the task, **DO NOT keep repeating actions, just return with `Agent.exit(success=False)`.**
+- Return with `Agent.exit(success=True)` or `Agent.exit(success=True, message="description")` immediately after the task is completed.
+- If you think cannot complete the task, **DO NOT keep repeating actions, just return with `Agent.exit(success=False)` or `Agent.exit(success=False, message="reason")`.**
 - The computer's environment is Linux, e.g., Desktop path is '/home/user/Desktop'
 - My computer's password is '{client_password}', feel free to use it when you need sudo rights
 {coordinate_info}"""
@@ -181,8 +181,8 @@ note_prompt = """* Note:
 - Each code block is context independent, and variables from the previous round cannot be used in the next round.
 - Do not put anything other than python code in ```python```.
 - You **can only use the above methods to interact with the UI**, do not invent new methods.
-- Return with `Agent.exit(success=True)` immediately after the task is completed.
-- If you think cannot complete the task, **DO NOT keep repeating actions, just return with `Agent.exit(success=False)`.**
+- Return with `Agent.exit(success=True)` or `Agent.exit(success=True, message="description")` immediately after the task is completed.
+- If you think cannot complete the task, **DO NOT keep repeating actions, just return with `Agent.exit(success=False)` or `Agent.exit(success=False, message="reason")`.**
 - The computer's environment is Linux, e.g., Desktop path is '/home/user/Desktop'
 - My computer's password is '{client_password}', feel free to use it when you need sudo rights"""
 
