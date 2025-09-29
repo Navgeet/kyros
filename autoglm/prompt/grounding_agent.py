@@ -273,12 +273,82 @@ print(f'Scroll Success at relative ({x}, {y}) -> absolute ({{abs_x}}, {{abs_y}})
         Press a hotkey combination.
 
         Args:
-            keys (List): the keys to press in combination in a list format (e.g. ['ctrl', 'c'] for copy, ['prtsc'] for screenshot)
+            keys (List): the keys to press in combination in a list format
+                        Common combinations:
+                        - ['ctrl', 'c'] for copy
+                        - ['ctrl', 'v'] for paste
+                        - ['alt', 'f2'] for run dialog (GNOME)
+                        - ['super', 'r'] for run dialog (awesome/other WMs)
+                        - ['ctrl', 'alt', 't'] for terminal
+                        - ['prtsc'] for screenshot
         """
-        # add quotes around the keys
-        keys = [f"'{key}'" for key in keys]
-        key_str = ", ".join(keys).replace("'", "\\'")
-        return f"import pyautogui; pyautogui.hotkey({', '.join(keys)}); print(f'Press Hotkey: {key_str}')"
+        return f"""
+import subprocess
+import time
+
+keys = {keys}
+print(f'Attempting hotkey combination: {{"+".join(keys)}}')
+
+# Use xdotool keydown/keyup syntax for reliable hotkey execution
+try:
+    # Map key names to xdotool format
+    xdotool_keys = []
+    for key in keys:
+        if key.lower() in ['super', 'win', 'windows']:
+            xdotool_keys.append('super')
+        elif key.lower() in ['ctrl', 'control']:
+            xdotool_keys.append('ctrl')
+        else:
+            xdotool_keys.append(key.lower())
+
+    # Build xdotool command using keydown/keyup syntax
+    cmd = ['xdotool']
+
+    # Press down all modifier keys first
+    for key in xdotool_keys[:-1]:
+        cmd.extend(['keydown', key])
+
+    # Press and release the final key
+    if len(xdotool_keys) > 0:
+        cmd.extend(['key', xdotool_keys[-1]])
+
+    # Release all modifier keys in reverse order
+    for key in reversed(xdotool_keys[:-1]):
+        cmd.extend(['keyup', key])
+
+    print(f'Executing xdotool command: {{" ".join(cmd)}}')
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+
+    if result.returncode == 0:
+        print(f'xdotool hotkey executed successfully: {{"+".join(xdotool_keys)}}')
+        time.sleep(0.5)  # Give system time to respond
+    else:
+        print(f'xdotool failed: {{result.stderr}}')
+        raise Exception(f'xdotool returned code {{result.returncode}}')
+
+except FileNotFoundError:
+    print('xdotool not available, falling back to pyautogui...')
+    # Fallback to pyautogui
+    try:
+        import pyautogui
+        pyautogui_keys = []
+        for key in keys:
+            if key.lower() in ['super', 'win', 'windows']:
+                pyautogui_keys.append('win')
+            else:
+                pyautogui_keys.append(key)
+
+        pyautogui.hotkey(*pyautogui_keys)
+        time.sleep(0.5)
+        print(f'PyAutoGUI fallback executed: {{"+".join(pyautogui_keys)}}')
+    except Exception as fallback_error:
+        print(f'Both xdotool and pyautogui failed: {{fallback_error}}')
+
+except Exception as e:
+    print(f'Hotkey execution failed: {{e}}')
+
+print('Hotkey attempt completed')
+""".strip()
 
     @classmethod
     @agent_action

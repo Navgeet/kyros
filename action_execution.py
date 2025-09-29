@@ -52,7 +52,10 @@ class ActionExecutor:
                 'max': max,
                 'round': round,
                 'sum': sum,
+                'reversed': reversed,
                 '__import__': __import__,
+                'FileNotFoundError': FileNotFoundError,
+                'Exception': Exception,
             },
             'pyautogui': pyautogui,
             'time': time,
@@ -172,8 +175,11 @@ class ActionExecutor:
         action_str = str(action).strip()
         logger.info(f"Executing action: {action_str}")
 
-        # Handle special commands
-        if action_str in ["WAIT", "DONE", "FAIL"]:
+        # Handle special commands (both standalone and compound)
+        special_commands = ["WAIT", "DONE", "FAIL"]
+
+        # Check if action is purely a special command
+        if action_str in special_commands:
             if action_str == "WAIT":
                 time.sleep(2)
                 result = "Waited 2 seconds"
@@ -185,6 +191,43 @@ class ActionExecutor:
             logger.info(f"Special command result: {result}")
             self.last_result = result
             return result
+
+        # Handle compound actions that end with special commands
+        for cmd in special_commands:
+            if action_str.endswith(f"; {cmd}") or action_str.endswith(f";{cmd}"):
+                # Split the action into code part and special command
+                if action_str.endswith(f"; {cmd}"):
+                    code_part = action_str[:-len(f"; {cmd}")].strip()
+                else:
+                    code_part = action_str[:-len(f";{cmd}")].strip()
+
+                # Execute the code part first
+                if code_part:
+                    try:
+                        fixed_code = self._fix_pyautogui_less_than_bug(code_part)
+                        success, code_result = self._safe_exec(fixed_code)
+                        if not success:
+                            logger.error(f"Code execution failed: {code_result}")
+                            self.last_result = code_result
+                            return code_result
+                    except Exception as e:
+                        error_msg = f"Error executing code part: {str(e)}"
+                        logger.error(error_msg)
+                        self.last_result = error_msg
+                        return error_msg
+
+                # Then handle the special command
+                if cmd == "WAIT":
+                    time.sleep(2)
+                    result = f"{code_result if code_part else ''}; Waited 2 seconds"
+                elif cmd == "DONE":
+                    result = f"{code_result if code_part else ''}; Task completed successfully"
+                elif cmd == "FAIL":
+                    result = f"{code_result if code_part else ''}; Task failed"
+
+                logger.info(f"Compound action result: {result}")
+                self.last_result = result
+                return result
 
         # Handle empty or invalid actions
         if not action_str or action_str.lower() == "none":
