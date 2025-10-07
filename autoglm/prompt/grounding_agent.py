@@ -220,7 +220,6 @@ print(f'Scroll Success at relative ({x}, {y}) -> absolute ({{abs_x}}, {{abs_y}})
             return f"import pyautogui; pyautogui.moveTo({x}, {y}); pyautogui.scroll({amount}); print('Scroll Success')"
 
     @classmethod
-    @agent_action
     def open_app(cls, app_name: str):
         """
         Open a specified application.
@@ -287,7 +286,6 @@ import subprocess
 import time
 
 keys = {keys}
-print(f'Attempting hotkey combination: {{"+".join(keys)}}')
 
 # Use xdotool keydown/keyup syntax for reliable hotkey execution
 try:
@@ -316,18 +314,16 @@ try:
     for key in reversed(xdotool_keys[:-1]):
         cmd.extend(['keyup', key])
 
-    print(f'Executing xdotool command: {{" ".join(cmd)}}')
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
 
     if result.returncode == 0:
-        print(f'xdotool hotkey executed successfully: {{"+".join(xdotool_keys)}}')
         time.sleep(0.5)  # Give system time to respond
+        print(f'Hotkey {{"+".join(keys)}} executed')
     else:
-        print(f'xdotool failed: {{result.stderr}}')
+        print(f'Hotkey failed: {{result.stderr}}')
         raise Exception(f'xdotool returned code {{result.returncode}}')
 
 except FileNotFoundError:
-    print('xdotool not available, falling back to pyautogui...')
     # Fallback to pyautogui
     try:
         import pyautogui
@@ -340,14 +336,12 @@ except FileNotFoundError:
 
         pyautogui.hotkey(*pyautogui_keys)
         time.sleep(0.5)
-        print(f'PyAutoGUI fallback executed: {{"+".join(pyautogui_keys)}}')
+        print(f'Hotkey {{"+".join(keys)}} executed (fallback)')
     except Exception as fallback_error:
-        print(f'Both xdotool and pyautogui failed: {{fallback_error}}')
+        print(f'Hotkey failed: {{fallback_error}}')
 
 except Exception as e:
-    print(f'Hotkey execution failed: {{e}}')
-
-print('Hotkey attempt completed')
+    print(f'Hotkey failed: {{e}}')
 """.strip()
 
     @classmethod
@@ -369,6 +363,49 @@ print('Hotkey attempt completed')
 
         """
         return "WAIT"
+
+    @classmethod
+    @agent_action
+    def run_shell_cmd(cls, command: str, timeout: int = 10):
+        """
+        Execute a shell command and return the output.
+
+        Args:
+            command (str): The shell command to execute
+            timeout (int): Maximum time to wait for command completion in seconds (default: 10)
+        """
+        return f"""
+import subprocess
+import time
+
+try:
+    print(f"Executing shell command: {repr(command)}")
+    result = subprocess.run(
+        {repr(command)},
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout={timeout}
+    )
+
+    if result.returncode == 0:
+        output = result.stdout.strip()
+        print(f'Command executed successfully')
+        if output:
+            print(f'Output: {{output}}')
+        else:
+            print('No output from command')
+    else:
+        error = result.stderr.strip()
+        print(f'Command failed with return code {{result.returncode}}')
+        if error:
+            print(f'Error: {{error}}')
+
+except subprocess.TimeoutExpired:
+    print(f'Command timed out after {timeout} seconds')
+except Exception as e:
+    print(f'Failed to execute command: {{e}}')
+""".strip()
 
     @classmethod
     @agent_action

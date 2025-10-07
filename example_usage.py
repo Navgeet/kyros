@@ -118,7 +118,7 @@ def main():
             break
 
         action = actions[0]
-        logger.info(f"Generated action: {action}")
+        # logger.info(f"Generated action: {action}")
 
         # Check for terminal actions
         if action in ["DONE", "FAIL"]:

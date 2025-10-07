@@ -179,7 +179,7 @@ class KyrosAgent:
         content = [{"type": "text", "text": prompt}]
         if self.with_image and obs.get('screenshot'):
             screenshot = resize_image(obs['screenshot'], self.image_size[0], self.image_size[1])
-            content = [
+            images = [
                 {
                     "type": "image_url",
                     "image_url": {
@@ -187,7 +187,20 @@ class KyrosAgent:
                         "detail": "high",
                     },
                 }
-            ] + content
+            ]
+
+            # Add previous screenshot if available for comparison
+            if obs.get('previous_screenshot'):
+                prev_screenshot = resize_image(obs['previous_screenshot'], self.image_size[0], self.image_size[1])
+                images.insert(0, {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{b64encode(prev_screenshot).decode('utf-8')}",
+                        "detail": "high",
+                    },
+                })
+
+            content = images + content
 
         messages.append({"role": "user", "content": content})
 
@@ -198,7 +211,7 @@ class KyrosAgent:
         try:
             actions = parse_code_from_string(response)
             action = actions[0]
-            logger.info(f"The parsed action is {action}")
+            # logger.info(f"The parsed action is {action}")
 
             if "Agent." in action:
                 # Replace Agent. with self.Agent. and evaluate in proper context

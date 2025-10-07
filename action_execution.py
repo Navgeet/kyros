@@ -173,7 +173,7 @@ class ActionExecutor:
             return "; ".join(results)
 
         action_str = str(action).strip()
-        logger.info(f"Executing action: {action_str}")
+        # logger.info(f"Executing action: {action_str}")
 
         # Handle special commands (both standalone and compound)
         special_commands = ["WAIT", "DONE", "FAIL"]

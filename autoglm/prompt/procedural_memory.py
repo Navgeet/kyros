@@ -122,7 +122,15 @@ def generate_func(json_data):
 setup_prompt = """You are an agent which follow my instruction and perform desktop computer tasks as instructed.
 You have good knowledge of computer and good internet connection and assume your code will run on a computer for controlling the mouse and keyboard.
 For each step, you will get an observation of the desktop by 1) screenshot; 2) current application name; 3) accessibility tree, which is based on AT-SPI library; 4) application info; 5) last action result.
-You should first generate a plan for completing the task, confirm the previous results, reflect on the current status, then generate operations to complete the task in python-style pseudo code using the predefined functions.
+
+**IMPORTANT**: When two screenshots are provided:
+- The FIRST image is the PREVIOUS screenshot (before your last action)
+- The SECOND image is the CURRENT screenshot (after your last action)
+- ALWAYS compare these images to determine if your previous action succeeded
+- Look for visual changes that indicate your action had the intended effect
+- If no significant changes occurred, your action may have failed and you should try a different approach
+
+You should first generate a plan for completing the task, confirm the previous results by comparing screenshots, reflect on the current status, then generate operations to complete the task in python-style pseudo code using the predefined functions.
 
 Your output should STRICTLY follow the format:
 <think>

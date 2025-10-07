@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Working example of the Kyros AutoGLM agent with real implementations.
+Enhanced Kyros AutoGLM agent with 2-LLM action verification system.
 
 This demonstrates how to use the Kyros agent with:
 - InternLM API for LLM calls
 - Real desktop observation functions
 - Action execution system
+- Action verification using before/after screenshots
+- Planning improvement based on verification results
 """
 
 import logging
@@ -18,6 +20,7 @@ from autoglm import KyrosAgent
 from llm_integration import create_internlm_function
 from desktop_observation import get_desktop_observation, check_dependencies
 from action_execution import ActionExecutor, check_automation_dependencies
+from action_verification import ActionVerifier
 
 
 def setup_logging():
@@ -57,11 +60,11 @@ def check_all_dependencies():
 
 
 def main():
-    """Main function demonstrating the working Kyros agent."""
+    """Main function demonstrating the enhanced Kyros agent with verification."""
     logger = setup_logging()
 
-    print("🤖 Kyros AutoGLM Agent - Working Example")
-    print("=" * 50)
+    print("🤖 Kyros AutoGLM Agent - Enhanced with Action Verification")
+    print("=" * 60)
 
     # Check dependencies
     if not check_all_dependencies():
@@ -98,6 +101,9 @@ def main():
     # Create action executor
     executor = ActionExecutor(screen_size=(1920, 1080))
 
+    # Create action verifier
+    verifier = ActionVerifier(gen_func=llm_function, image_size=(1920, 1080))
+
     # Get task from user or use default
     if len(sys.argv) > 1:
         instruction = " ".join(sys.argv[1:])
@@ -128,11 +134,12 @@ def main():
     print(f"\n🎯 Task: {instruction}")
     logger.info(f"Starting task: {instruction}")
 
-    # Main interaction loop
+    # Main interaction loop with verification
     max_steps = 10
     previous_action = None
     previous_screenshot = None
     command_output_log = []  # Store shell command outputs for observation
+    verification_context = {}  # Store verification results for planning
 
     for step in range(max_steps):
         print(f"\n{'='*20} Step {step + 1}/{max_steps} {'='*20}")
@@ -158,11 +165,61 @@ def main():
                 # Include last 5 command outputs to keep context manageable
                 obs["command_history"] = command_output_log[-5:]
 
+            # Add verification context to observation if available
+            if verification_context:
+                obs["verification_context"] = verification_context
+
             print(f"📊 Observation: Screenshot={len(obs['screenshot'])} bytes, "
                   f"Apps={len(obs['apps'])}, Current={obs['cur_app']}")
 
+            # ACTION VERIFICATION PHASE
+            # If we have previous action and screenshots, verify the action first
+            if (previous_action is not None and
+                previous_screenshot is not None and
+                previous_action not in ["WAIT", "DONE", "FAIL"]):
+
+                print("🔍 Verifying previous action...")
+                verification_result = verifier.verify_action(
+                    task=instruction,
+                    previous_action=previous_action,
+                    before_screenshot=previous_screenshot,
+                    after_screenshot=obs['screenshot'],
+                    action_result=executor.get_last_result()
+                )
+
+                print(f"📊 Verification: Success={verification_result['success']}, "
+                      f"Confidence={verification_result['confidence']}")
+
+                # PLANNING IMPROVEMENT PHASE
+                print("🧠 Improving planning based on verification...")
+                planning_result = verifier.improve_planning(
+                    task=instruction,
+                    verification_result=verification_result,
+                    current_context=obs,
+                    agent_history=agent.format_history()
+                )
+
+                print(f"📋 Planning: Strategy={planning_result['strategy'][:50]}...")
+
+                # Store verification context for next iteration
+                verification_context = {
+                    "last_verification": verification_result,
+                    "last_planning": planning_result,
+                    "success_rate": len([v for v in verifier.get_verification_history()
+                                       if v.get('success') == 'YES']) / len(verifier.get_verification_history())
+                    if verifier.get_verification_history() else 0
+                }
+
+                # Add planning guidance to observation
+                obs["planning_guidance"] = {
+                    "strategy": planning_result["strategy"],
+                    "corrections": planning_result["corrections"],
+                    "risks": planning_result["risks"],
+                    "success_indicators": planning_result["success_indicators"]
+                }
+
             # Generate next action
-            print("🧠 Generating action with LLM...")
+            print("🎭 Generating next action with LLM...")
             response, actions = agent.predict(instruction, obs)
 
             if not actions:
@@ -171,13 +228,25 @@ def main():
                 break
 
             action = actions[0]
-            # print(f"🎬 Action: {action}")
-            # logger.info(f"Generated action: {action}")
+            print(f"🎬 Next Action: {action}")
+            logger.info(f"Generated action: {action}")
 
             # Check for terminal actions
             if action in ["DONE", "FAIL"]:
                 print(f"🏁 Task completed with status: {action}")
                 logger.info(f"Task completed with status: {action}")
+
+                # Final verification if we have before/after screenshots
+                if previous_action and previous_screenshot:
+                    print("🔍 Final verification...")
+                    final_verification = verifier.verify_action(
+                        task=instruction,
+                        previous_action=previous_action,
+                        before_screenshot=previous_screenshot,
+                        after_screenshot=obs['screenshot'],
+                        action_result=executor.get_last_result()
+                    )
+                    print(f"📊 Final result: {final_verification['success']} - {final_verification['reasoning'][:100]}...")
                 break
             elif action == "WAIT":
                 print("⏸️  Waiting...")
@@ -185,15 +254,17 @@ def main():
                 time.sleep(2)
                 continue
 
+            # Store current state before executing action
+            current_screenshot = obs.get('screenshot')
+
             # Execute the action
             print("⚡ Executing action...")
-
-            # Store current action and screenshot for next iteration
-            previous_action = action
-            previous_screenshot = obs.get('screenshot')
-
             result = executor.execute_action(action)
-            print(f"📋 Result: {result}")
+            print(f"📋 Execution Result: {result}")
+
+            # Update state for next iteration
+            previous_action = action
+            previous_screenshot = current_screenshot
 
             # Check if this was a shell command and capture its output
             if "run_shell_cmd" in str(action) or "Executing shell command:" in str(result):
@@ -219,8 +290,29 @@ def main():
             # Continue to next step rather than failing completely
             time.sleep(1)
 
-    print(f"\n🏁 Example completed after {step + 1} steps")
-    logger.info("Example completed")
+    # Print verification summary
+    print(f"\n📊 VERIFICATION SUMMARY")
+    print("=" * 40)
+    history = verifier.get_verification_history()
+    if history:
+        success_count = len([v for v in history if v.get('success') == 'YES'])
+        partial_count = len([v for v in history if v.get('success') == 'PARTIAL'])
+        fail_count = len([v for v in history if v.get('success') == 'NO'])
+
+        print(f"Total Actions Verified: {len(history)}")
+        print(f"✅ Successful: {success_count}")
+        print(f"🟡 Partial: {partial_count}")
+        print(f"❌ Failed: {fail_count}")
+        print(f"Success Rate: {(success_count / len(history) * 100):.1f}%")
+
+        print("\nVerification Details:")
+        for i, v in enumerate(history[-3:], 1):  # Show last 3
+            print(f"{i}. {v.get('action', 'Unknown')[:30]}... -> {v.get('success', 'Unknown')}")
+    else:
+        print("No actions were verified.")
+
+    print(f"\n🏁 Enhanced example completed after {step + 1} steps")
+    logger.info("Enhanced example completed")
 
 
 if __name__ == "__main__":
