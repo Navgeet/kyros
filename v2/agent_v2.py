@@ -14,7 +14,7 @@ import os
 import uuid
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -29,6 +29,14 @@ sys.path.append('..')
 from generate_text_plan import generate_text_plan_internlm
 from refine_plan import refine_plan_internlm
 from plan_to_code import plan_to_code_internlm
+
+# Import for RAG functionality
+import requests
+from couchbase.cluster import Cluster
+from couchbase.auth import PasswordAuthenticator
+from couchbase.options import ClusterOptions, SearchOptions
+import couchbase.search as search
+from couchbase.vector_search import VectorQuery, VectorSearch
 
 
 class WebSocketManager:
@@ -75,6 +83,17 @@ class ConversationalPlanningAgent:
         # API configuration
         self.api_url = os.getenv("INTERNLM_API_URL", "http://localhost:23333")
         self.api_key = os.getenv("INTERNLM_API_KEY")
+
+        # RAG configuration
+        self.embedding_url = "http://192.168.0.213:11434/api/embeddings"
+        self.embedding_model = "dengcao/Qwen3-Embedding-8B:Q4_K_M"
+        self.couchbase_connection = os.getenv("COUCHBASE_CONNECTION", "couchbase://192.168.0.213")
+        self.couchbase_username = os.getenv("COUCHBASE_USERNAME", "admin")
+        self.couchbase_password = os.getenv("COUCHBASE_PASSWORD", "admin123")
+        self.couchbase_bucket = os.getenv("COUCHBASE_BUCKET", "foo")
+        self.couchbase_scope = os.getenv("COUCHBASE_SCOPE", "bar")
+        self.couchbase_collection = os.getenv("COUCHBASE_COLLECTION", "learnings")
+        self.couchbase_search_index = os.getenv("COUCHBASE_SEARCH_INDEX", "learnings")
 
         # Directory setup for conversations and screenshots
         self.conversations_dir = Path("conversations")
@@ -426,15 +445,15 @@ class ConversationalPlanningAgent:
                 "message": "Generating high-level text plan..."
             }, websocket)
 
-            # Generate text plan
-            text_plan = await self._generate_text_plan(user_message)
+            # Generate text plan (includes RAG refinement and conversation recording)
+            text_plan = await self._generate_text_plan(user_message, session)
             session["text_plan"] = text_plan
             session["phase"] = "text_plan_approval"
 
-            # Record text plan generation
+            # Record final text plan for user presentation
             session["conversation_history"].append({
                 "from": "system",
-                "content": text_plan,
+                "content": f"Final text plan for user review:\n{text_plan}",
                 "timestamp": datetime.now().isoformat()
             })
 
@@ -852,7 +871,7 @@ class ConversationalPlanningAgent:
                 "message": "Replanning from scratch. Generating new high-level text plan..."
             }, websocket)
 
-            text_plan = await self._generate_text_plan(session["user_request"])
+            text_plan = await self._generate_text_plan(session["user_request"], session)
             session["text_plan"] = text_plan
             session["phase"] = "text_plan_approval"
 
@@ -956,24 +975,209 @@ class ConversationalPlanningAgent:
                 "message": "Code execution failed!"
             }, websocket)
 
-    async def _generate_text_plan(self, user_request: str) -> str:
-        """Generate high-level text plan."""
+    async def _generate_text_plan(self, user_request: str, session: Optional[Dict] = None) -> str:
+        """Generate high-level text plan with RAG refinement."""
+        # Step 1: Generate initial text plan
+        loop = asyncio.get_event_loop()
+        initial_plan = await loop.run_in_executor(
+            None,
+            generate_text_plan_internlm,
+            user_request,
+            self.api_url,
+            self.api_key,
+            True,  # include_screenshot
+            False,  # stream
+            None   # screenshot_file
+        )
+
+        # Record initial plan generation in conversation history
+        if session:
+            session["conversation_history"].append({
+                "from": "system",
+                "content": f"[RAG Step 1] Generated initial plan:\n{initial_plan}",
+                "timestamp": datetime.now().isoformat(),
+                "rag_step": "initial_plan"
+            })
+
+        # Step 2: RAG refinement - generate embedding for the plan
+        print("🧠 Generating plan embedding for RAG search...")
+        plan_embedding = await self._generate_embedding(initial_plan)
+
+        # Record embedding generation
+        if session:
+            session["conversation_history"].append({
+                "from": "system",
+                "content": f"[RAG Step 2] Generated embedding for plan (dimension: {len(plan_embedding) if plan_embedding else 0})",
+                "timestamp": datetime.now().isoformat(),
+                "rag_step": "embedding_generation"
+            })
+
+        # Step 3: Search for relevant learning objects
+        print("🔍 Searching for relevant learning objects...")
+        learning_objects = await self._search_learning_objects(plan_embedding)
+
+        # Record learning search results
+        if session:
+            if learning_objects:
+                learning_summary = "\n".join([
+                    f"- Learning: {obj['learning'][:100]}{'...' if len(obj['learning']) > 100 else ''}"
+                    for obj in learning_objects[:3]  # Only show first 3 for brevity
+                ])
+                session["conversation_history"].append({
+                    "from": "system",
+                    "content": f"[RAG Step 3] Found {len(learning_objects)} relevant learning objects:\n{learning_summary}",
+                    "timestamp": datetime.now().isoformat(),
+                    "rag_step": "learning_search"
+                })
+            else:
+                session["conversation_history"].append({
+                    "from": "system",
+                    "content": "[RAG Step 3] No relevant learning objects found",
+                    "timestamp": datetime.now().isoformat(),
+                    "rag_step": "no_learning_found"
+                })
+
+        # Step 4: Refine plan using learned knowledge (if any found)
+        if learning_objects:
+            print("📚 Refining plan with learned knowledge...")
+            refined_plan = await self._refine_plan_with_rag(initial_plan, learning_objects, user_request)
+
+            # Record plan refinement
+            if session:
+                session["conversation_history"].append({
+                    "from": "system",
+                    "content": f"[RAG Step 4] Refined plan with learned knowledge:\n{refined_plan}",
+                    "timestamp": datetime.now().isoformat(),
+                    "rag_step": "plan_refinement"
+                })
+
+            return refined_plan
+        else:
+            print("📝 No learning objects found, using initial plan")
+            return initial_plan
+
+    async def _generate_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate embedding for text using Ollama API."""
         try:
-            # Run in thread to avoid blocking
+            payload = {
+                "model": self.embedding_model,
+                "prompt": text
+            }
+
             loop = asyncio.get_event_loop()
-            text_plan = await loop.run_in_executor(
+
+            def make_request():
+                response = requests.post(self.embedding_url, json=payload, timeout=60)
+                response.raise_for_status()
+                result = response.json()
+                return result.get("embedding", [])
+
+            embedding = await loop.run_in_executor(None, make_request)
+            return embedding if embedding else None
+
+        except Exception as e:
+            print(f"❌ Error generating embedding: {e}")
+            return None
+
+    async def _search_learning_objects(self, embedding: List[float]) -> List[Dict]:
+        """Search for learning objects in Couchbase using vector similarity."""
+        if not embedding:
+            print("⚠️ No embedding provided for search")
+            return []
+
+        print(f"🔗 Connecting to Couchbase at {self.couchbase_connection} with user '{self.couchbase_username}'...")
+
+        # Connect to Couchbase
+        auth = PasswordAuthenticator(self.couchbase_username, self.couchbase_password)
+        options = ClusterOptions(auth)
+        options.apply_profile("wan_development")
+        cluster = Cluster(self.couchbase_connection, options)
+
+        # Wait for connection to be ready
+        cluster.wait_until_ready(timeout=timedelta(seconds=10))
+        print("✅ Successfully connected to Couchbase cluster")
+
+        # Get bucket and scope
+        bucket = cluster.bucket(self.couchbase_bucket)
+        scope = bucket.scope(self.couchbase_scope)
+
+        loop = asyncio.get_event_loop()
+
+        def execute_vector_search():
+            print(f"🔍 Executing combined vector search on index '{self.couchbase_search_index}'...")
+
+            # Create multiple vector queries for both embedding fields
+            vector_queries = [
+                VectorQuery.create('example_embed', embedding, num_candidates=3, boost=0.5),
+                VectorQuery.create('learning_embed', embedding, num_candidates=3, boost=0.5)
+            ]
+
+            # Combine into single search request
+            search_req = search.SearchRequest.create(VectorSearch(vector_queries))
+
+            # Execute combined search
+            result = scope.search(
+                self.couchbase_search_index,
+                search_req,
+                SearchOptions(limit=6, fields=["learning", "example"])
+            )
+
+            learning_objects = []
+            for row in result.rows():
+                row_data = row.fields
+                if row_data and "learning" in row_data and "example" in row_data:
+                    if row_data["learning"] and row_data["example"]:  # Check for None values
+                        # Avoid duplicates based on learning content
+                        if not any(obj["learning"] == row_data["learning"] for obj in learning_objects):
+                            learning_objects.append({
+                                "learning": row_data["learning"],
+                                "example": row_data["example"]
+                            })
+
+            print(f"📚 Found {len(learning_objects)} learning objects via combined vector search")
+            print(f"Total search results: {result.metadata().metrics().total_rows()}")
+            return learning_objects
+
+        return await loop.run_in_executor(None, execute_vector_search)
+
+    async def _refine_plan_with_rag(self, initial_plan: str, learning_objects: List[Dict], user_request: str) -> str:
+        """Refine the initial plan using RAG-retrieved learning objects."""
+        try:
+            # Prepare the learnings context
+            learnings_text = "\n".join([
+                f"Learning: {obj['learning']}\nExample: {obj['example']}\n"
+                for obj in learning_objects
+            ])
+
+            # Create a refinement prompt that includes the learnings
+            refinement_prompt = f"""Original user request: {user_request}
+
+Initial plan:
+{initial_plan}
+
+Relevant learnings from previous experiences:
+{learnings_text}
+
+Please refine the initial plan by incorporating insights from the relevant learnings above. Only make improvements that are clearly beneficial based on the learnings. Keep the core structure and intent of the original plan."""
+
+            # Use the existing refine_plan_internlm function
+            loop = asyncio.get_event_loop()
+            refined_plan = await loop.run_in_executor(
                 None,
-                generate_text_plan_internlm,
-                user_request,
+                refine_plan_internlm,
+                refinement_prompt,
                 self.api_url,
                 self.api_key,
                 True,  # include_screenshot
                 False,  # stream
                 None   # screenshot_file
             )
-            return text_plan
+
+            return refined_plan
+
         except Exception as e:
-            return f"Error generating text plan: {str(e)}"
+            print(f"❌ Error refining plan with RAG: {e}")
+            return initial_plan
 
     async def _improve_text_plan(self, original_plan: str, feedback: str, user_request: str) -> str:
         """Improve text plan based on feedback."""

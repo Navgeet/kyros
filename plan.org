@@ -1,0 +1,68 @@
+#+title: Plan
+
+* next steps
+
+** DONE RAG demo
+
+** benchmarks
+
+*** https://github.com/BMayhew/awesome-sites-to-test-on
+
+*** basic calculator
+
+*** basic tasks
+
+**** operate spotify
+
+**** open terminal
+
+**** operate vscode
+
+*** osworld
+*** puzzles
+- https://blackboxpuzzles.workroomprds.com/puzzle29/
+** open questions
+
+*** how to self verification
+
+** more tools
+
+*** browser
+
+** architecture
+
+*** client - server
+**** client
+***** executor
+- screenshot
+- communication
+- self verification
+**** server
+***** agents
+
+** TODO langgraph
+
+*** agents
+
+**** planner
+- get context
+- generate
+- RAG refinement
+- optimize?
+- feedback-improvement+
+
+**** learner
+- generate specific learnings
+- RAG refinement?
+- feedback-improvement+
+- generalize
+- RAG refinement?
+- feedback-improvement+
+
+**** debugger
+
+
+
+**** context
+- keep context b/w tasks
+- intelligent state

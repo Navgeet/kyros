@@ -9,7 +9,12 @@ class Executor:
         self.completed_tasks = set()
     
     def execute_plan(self, plan: Dict) -> bool:
-        """Execute JSON plan in the correct order based on dependencies."""
+        """Execute plan - either JSON tasks or Python code based on plan type."""
+        # Check if this is the new Python code format
+        if plan.get('type') == 'python_code':
+            return self._execute_python_code(plan.get('code', ''))
+        
+        # Legacy JSON task execution
         tasks = plan.get('tasks', [])
         if not tasks:
             return True
@@ -250,4 +255,42 @@ class Executor:
         else:
             task['stderr'] = f"Screen verification failed - no change detected between {before_name} and {after_name}"
             print(f"✗ Screen verification failed for task: {task_name}")
+            return False
+    
+    def _execute_python_code(self, code: str) -> bool:
+        """Execute generated Python code using the kyros.tools module."""
+        try:
+            print("🐍 Executing generated Python code...")
+            print(f"Code to execute:\n{code}\n")
+            
+            # Create a safe execution environment with access to kyros.tools
+            import kyros.tools as tools
+            
+            # Create execution namespace
+            exec_namespace = {
+                'kyros': __import__('kyros'),
+                'tools': self.tools,  # Provide direct access to tools instance
+                '__builtins__': {
+                    'print': print,
+                    'len': len,
+                    'str': str,
+                    'int': int,
+                    'float': float,
+                    'bool': bool,
+                    'list': list,
+                    'dict': dict,
+                    'range': range,
+                    'enumerate': enumerate,
+                    'zip': zip,
+                }
+            }
+            
+            # Execute the generated code
+            exec(code, exec_namespace)
+            
+            print("✅ Python code executed successfully")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error executing Python code: {e}")
             return False

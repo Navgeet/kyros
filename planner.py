@@ -2,6 +2,7 @@ import requests
 import json
 import base64
 import pyautogui
+import time
 from typing import Dict, List, Any
 from io import BytesIO
 from logger import planner_logger
@@ -81,47 +82,234 @@ class Planner:
         self.streaming_callback = callback
     
     def generate_plan(self, user_input: str, max_retries: int = 3, conversation_history: List[Dict] = None, regenerate_screen_context: bool = True) -> Dict:
-        # Generate screen context only if requested (not during replanning)
-        screen_context = ""
-        if regenerate_screen_context:
-            print("🔍 Analyzing screen...")
-            screen_context = '' # 'The image shows a web page titled "testsheepnz.github.io/BasicCalculator.html." The page is a basic calculator with a simple interface. Here is a detailed breakdown:\n\n1. **Applications/Windows**:\n   - The main application is a web browser displaying a calculator page.\n   - There are multiple tabs open in the browser, including "1 (1) WhatsApp," "Basic Calculator," "Imported," "Baka-Updates - M...," "Don\'t use Mongo...," "GeoSpatial Index...," "git.rsbx.net/Docu...", "How to Beat Pro...", "How To Make Yo...", "http-headers-stat...", and "All Bookmarks."\n\n2. **UI Elements**:\n   - **Text Fields**:\n     - Two input fields for "First number" and "Second number."\n     - A dropdown menu for selecting the operation (e.g., "Add," "Subtract," "Multiply," "Divide").\n     - An input field for the answer.\n   - **Buttons**:\n     - A "Calculate" button to perform the operation.\n     - A "Clear" button to clear the input fields.\n   - **Labels**:\n     - Labels for "First number," "Second number," and "Operation."\n     - A checkbox labeled "Integer only."\n   - **Navigation**:\n     - A menu bar at the top with options like "Home," "Search," and "More."\n     - A search bar at the top.\n     - A menu icon for more options.\n     - A "Finish update" button at the top right.\n\n3. **Current State of the Desktop/Applications**:\n   - The desktop is open to a web browser with multiple tabs open.\n   - The main focus is on the calculator page, which is a basic HTML page with a simple calculator interface.\n   - The browser is likely being used for web development or testing purposes.\n\n4. **Relevant Context for Task Planning**:\n   - The user is likely testing or developing a basic calculator web page.\n   - The presence of multiple tabs suggests that the user might be testing different functionalities or debugging issues.\n   - The "Finish update" button indicates that the user might be in the process of finalizing or updating the page.\n\nThis description provides a comprehensive overview of the current state of the screen and the context in which it is being used.'
-            # screen_context = self._generate_screen_context()
-        else:
-            print("🔄 Replanning without regenerating screen context...")
-
-        for attempt in range(max_retries):
-            if attempt > 0:
-                print(f"Retrying plan generation (attempt {attempt + 1}/{max_retries})...")
-            
-            plan_json = self._generate_single_plan(user_input, conversation_history, screen_context)
-            print('Generated Plan JSON:\n')
-            print(plan_json)
-            
-            try:
-                parsed_plan = self._parse_json_plan_to_dict(plan_json)
-                
-                # Try to improve the plan using LLM
-                try:
-                    improved_plan_json = self._improve_plan(plan_json, user_input, conversation_history)
-                    if improved_plan_json:
-                        improved_parsed_plan = self._parse_json_plan_to_dict(improved_plan_json)
-                        print("✨ Plan improved successfully")
-                        return improved_parsed_plan
-                    else:
-                        print("⚠️ Plan improvement failed, using original plan")
-                except Exception as improve_error:
-                    print(f"⚠️ Plan improvement error: {improve_error}, using original plan")
-                
-                return parsed_plan
-            except Exception as e:
-                print(f"Error parsing plan JSON: {e}")
-                print(f"Plan content: {plan_json}")
-                if attempt == max_retries - 1:
-                    print("Max retries reached - plan generation failed")
-                    return {}
+        """
+        Generate executable Python code plan according to the new requirements.
         
-        return {}
+        This implements the iterative code generation approach:
+        1. Generate high-level text plan
+        2. Iteratively refine using vector search 
+        3. Convert to executable Python code
+        4. Stop when code converges
+        """
+        # Step 1: Generate high-level text plan
+        print("📝 Generating high-level plan...")
+        text_plan = self._generate_text_plan(user_input, conversation_history)
+        print(f"Text plan: {text_plan}")
+        
+        # Step 2: Iteratively refine and convert to code
+        print("🔄 Refining plan to executable code...")
+        code_plan = self._iterative_refinement(text_plan, user_input, conversation_history)
+        
+        return {"type": "python_code", "code": code_plan, "text_plan": text_plan}
+    
+    def _generate_text_plan(self, user_input: str, conversation_history: List[Dict] = None) -> str:
+        """Generate a high-level text plan using LLM with tool overview."""
+        try:
+            from openai import OpenAI
+            
+            context_section = ""
+            if conversation_history:
+                state_json = json.dumps(conversation_history, indent=2)
+                context_section = f"""
+<ConversationHistory>
+{state_json}
+</ConversationHistory>
+"""
+            
+            prompt = f"""
+<Instruction>
+You are a high-level task planner. Your job is to create a text-based plan to accomplish the user's request.
+
+Given the user input and available tools, create a step-by-step text plan that describes what needs to be done.
+This plan will later be converted to executable Python code, so focus on the logical steps needed.
+
+Available tools overview:
+- focus_window(name): Focus a window by name
+- hotkey(keys): Send keyboard shortcuts like "ctrl+t", "enter"
+- type(text): Type text
+- click(x, y): Click at coordinates
+- move_to(x, y): Move mouse to coordinates
+- query_screen(query): Ask questions about what's on screen
+- run_shell_command(args): Run shell commands
+
+Create a concise, step-by-step text plan. Do not write code - just describe the steps.
+</Instruction>
+
+{context_section}
+
+<UserInput>
+{user_input}
+</UserInput>
+"""
+            
+            client = OpenAI(
+                api_key="EMPTY",
+                base_url=self.vllm_url
+            )
+            
+            messages = [{"role": "user", "content": prompt}]
+            response = client.chat.completions.create(
+                model="Qwen/Qwen3-4B-Thinking-2507",
+                messages=messages,
+                stream=False,
+                temperature=0.6,
+                top_p=0.95,
+                extra_body={
+                    "top_k": 20,
+                    "min_p": 0,
+                    "presence_penalty": 1
+                }
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            print(f"Error generating text plan: {e}")
+            return f"Plan: {user_input}"  # Fallback
+    
+    def _iterative_refinement(self, text_plan: str, user_input: str, conversation_history: List[Dict] = None) -> str:
+        """Iteratively refine the text plan into executable Python code."""
+        previous_code = ""
+        max_iterations = 5
+        
+        for iteration in range(max_iterations):
+            print(f"🔄 Refinement iteration {iteration + 1}/{max_iterations}")
+            
+            # Generate code from current plan
+            current_code = self._convert_to_code(text_plan, user_input, conversation_history, previous_code)
+            
+            # Check for convergence 
+            if current_code == previous_code and iteration > 0:
+                print(f"✅ Code converged after {iteration + 1} iterations")
+                break
+                
+            previous_code = current_code
+            
+            # Add small delay between iterations
+            time.sleep(0.1)
+        
+        return current_code
+    
+    def _convert_to_code(self, text_plan: str, user_input: str, conversation_history: List[Dict] = None, previous_code: str = "") -> str:
+        """Convert text plan to executable Python code using vector search results."""
+        try:
+            from openai import OpenAI
+            
+            # Simulate vector search results (in real implementation, this would query Couchbase)
+            vector_search_results = self._simulate_vector_search(text_plan, user_input)
+            
+            context_section = ""
+            if conversation_history:
+                state_json = json.dumps(conversation_history, indent=2)
+                context_section = f"""
+<ConversationHistory>
+{state_json}
+</ConversationHistory>
+"""
+            
+            previous_code_section = ""
+            if previous_code:
+                previous_code_section = f"""
+<PreviousCode>
+{previous_code}
+</PreviousCode>
+"""
+            
+            prompt = f"""
+<Instruction>
+Convert the text plan into executable Python code using the kyros.tools module.
+
+Follow this exact format from the requirements:
+
+```python
+import kyros.tools
+
+def focus_chrome_window():
+    tools.focus_window("chrome")
+
+def open_new_tab():
+    tools.hotkey("ctrl+t")
+
+def type_query_and_submit(query):
+    tools.type(query)
+    tools.hotkey("enter")
+    
+focus_chrome_window()
+open_new_tab()
+type_query_and_submit("restaurants near me")
+```
+
+Rules:
+1. Import kyros.tools at the top
+2. Define functions for each logical step
+3. Call the functions at the bottom
+4. Use the available tools from the vector search results
+5. Keep it simple and focused on the task
+
+Available tools and documentation:
+{vector_search_results}
+</Instruction>
+
+{context_section}
+{previous_code_section}
+
+<TextPlan>
+{text_plan}
+</TextPlan>
+
+<UserInput>
+{user_input}
+</UserInput>
+
+Generate the Python code:
+"""
+            
+            client = OpenAI(
+                api_key="EMPTY", 
+                base_url=self.vllm_url
+            )
+            
+            messages = [{"role": "user", "content": prompt}]
+            response = client.chat.completions.create(
+                model="Qwen/Qwen3-4B-Thinking-2507",
+                messages=messages,
+                stream=False,
+                temperature=0.2,
+                top_p=0.9
+            )
+            
+            code = response.choices[0].message.content.strip()
+            
+            # Extract code from markdown blocks if present
+            if '```python' in code:
+                code = code.split('```python')[1].split('```')[0].strip()
+            elif '```' in code:
+                code = code.split('```')[1].split('```')[0].strip()
+            
+            return code
+            
+        except Exception as e:
+            print(f"Error converting to code: {e}")
+            return f"# Error: {e}\nprint('Failed to generate code')"
+    
+    def _simulate_vector_search(self, text_plan: str, user_input: str) -> str:
+        """Simulate vector search results from Couchbase (placeholder implementation)."""
+        # In real implementation, this would query Couchbase for relevant examples and docs
+        return """
+Tools available:
+- tools.focus_window(name): Focus window by name (e.g., "chrome", "firefox") 
+- tools.hotkey(keys): Send keyboard shortcuts (e.g., "ctrl+t", "ctrl+w", "enter", "escape")
+- tools.type(text): Type the specified text
+- tools.click(x, y): Click at coordinates (use floats 0-1 for relative positioning)
+- tools.move_to(x, y): Move mouse to coordinates
+- tools.query_screen(query): Ask questions about screen content
+- tools.run_shell_command(args): Execute shell commands
+
+Example patterns:
+- Opening new browser tab: tools.focus_window("chrome"); tools.hotkey("ctrl+t")
+- Typing and submitting: tools.type("search query"); tools.hotkey("enter")
+- Basic clicking: tools.click(0.5, 0.3)  # center horizontally, 30% down
+"""
     
     def _generate_screen_context(self) -> str:
         """Generate screen context using vision model."""

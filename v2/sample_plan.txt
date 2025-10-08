@@ -1,0 +1,7 @@
+1. Focus on the calculator application window
+2. Click on the number "5" button
+3. Click on the "+" operator button
+4. Click on the number "3" button
+5. Click on the "=" button to calculate the result
+6. Verify the result shows "8" in the display
+7. Take a screenshot to confirm the calculation was successful

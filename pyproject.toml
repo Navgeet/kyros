@@ -13,6 +13,9 @@ dependencies = [
     "jinja2>=3.1.6",
     "openai>=1.102.0",
     "websockets>=15.0.1",
+    "couchbase>=4.4.0",
+    "langgraph>=0.0.40",
+    "langchain-core>=0.1.0",
 ]
 
 [build-system]
