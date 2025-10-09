@@ -1,0 +1,71 @@
+# OpenAI API settings
+openai:
+  api_key: ${OPENAI_API_KEY}
+  base_url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+
+# Anthropic API settings (used by ShellAgent)
+anthropic:
+  api_key: ${ANTHROPIC_API_KEY}
+  base_url: https://api.anthropic.com/v1/messages
+
+# InternLM API settings (used by BossAgent and GUIAgent)
+internlm:
+  api_key: ${INTERNLM_API_KEY}
+  base_url: ${INTERNLM_BASE_URL:https://chat.intern-ai.org.cn/api/v1/}
+
+# Tavily API settings (used by ResearchAgent)
+tavily:
+  api_key: ${TAVILY_API_KEY}
+
+# Hugging Face API settings (used by GUIAgent for action generation)
+huggingface:
+  api_key: ${HF_TOKEN}
+  base_url: https://router.huggingface.co/v1
+
+novita:
+  api_key: ${NOVITA_API_KEY}
+  base_url: https://api.novita.ai/openai
+
+# Agent-specific configurations
+agents:
+  boss:
+    model: "claude-sonnet-4-5"
+    api_provider: "anthropic"
+    # model: "internvl3.5-241b-a28b"
+    # api_provider: "internlm"
+    temperature: 0.5
+    max_tokens: 1000
+
+  gui:
+    model: "internvl3.5-241b-a28b"
+    api_provider: "internlm"
+    temperature: 0.7
+    max_tokens: 1000
+    # Action generation settings (uses Hugging Face)
+    action_generation:
+      model: "qwen/qwen3-vl-235b-a22b-thinking"
+      api_provider: "novita"
+      temperature: 0.7
+      max_tokens: 1000
+
+  shell:
+    model: "claude-sonnet-4-5"
+    api_provider: "anthropic"
+    temperature: 0.3
+    max_tokens: 1000
+
+  research:
+    model: "claude-3-5-haiku-latest"
+    api_provider: "anthropic"
+    temperature: 0.5
+    max_tokens: 2000
+
+
+# Context compaction settings (used by all agents)
+compaction:
+  model: "claude-sonnet-4-5"
+  api_provider: "anthropic"
+  max_tokens: 1000
+  trigger:
+    steps: 5  # Compact after every N steps
+    words: 1000  # Compact when context exceeds N words

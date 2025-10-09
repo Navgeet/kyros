@@ -1,0 +1,16 @@
+[project]
+name = "kyros"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.12.15",
+    "anthropic>=0.39.0",
+    "openai>=2.0.0",
+    "pillow>=11.3.0",
+    "pyscreenshot>=3.1",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "pyautogui>=0.9.54",
+]

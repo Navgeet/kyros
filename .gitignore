@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+.env
+.env.local
+.vscode/
+.python-version
+
+CLAUDE.md
+claude.md
+
+/sessions/
+
+# js
+node_modules/
+
+/logs/
