@@ -1,6 +1,6 @@
-# Computer Use Agent (CUA)
+# Kyros - Computer Use Agent (CUA)
 
-A computer-use agent powered by InternLM API and InternVL3.5-241B-A28B model.
+A computer-use agent powered by InternLM API and InternVL3.5-241B-A28B model, running in a Docker container with VNC access.
 
 ## Features
 
@@ -76,6 +76,56 @@ The agent follows a feedback loop:
 - `tools.hotkey(keys)`: Press hotkey combination (e.g., 'super+r')
 - `tools.bash(cmd)`: Execute bash command
 - `tools.exit(message, exitCode)`: Exit the agent loop
+
+## Docker Setup
+
+### Build the Docker Image
+
+```bash
+docker build -t kyros-agent .
+```
+
+Note: First build may take 10-15 minutes due to desktop environment installation.
+
+### Run with Docker Compose (recommended)
+
+```bash
+docker-compose up -d
+```
+
+### Run with Docker directly
+
+```bash
+docker run -d -p 5901:5901 --name kyros-agent kyros-agent
+```
+
+### Connecting via VNC
+
+1. Install a VNC client (e.g., TigerVNC, RealVNC, TightVNC Viewer)
+2. Connect to: `localhost:5901`
+3. Password: `password`
+
+### Access Container Shell
+
+```bash
+docker exec -it kyros-agent bash
+```
+
+### Change VNC Password
+
+Edit the Dockerfile and modify the password in the CMD line, then rebuild.
+
+### Workspace
+
+The `agent-workspace` directory is mounted into the container at `/home/dockeruser/workspace` for persistent storage.
+
+### Stopping the Agent
+
+```bash
+docker-compose down
+# or
+docker stop kyros-agent && docker rm kyros-agent
+```
 
 ## License
 

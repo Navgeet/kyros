@@ -3,6 +3,16 @@ import pyautogui
 import time
 from dataclasses import dataclass
 from typing import Optional
+import os
+
+# Try to import Xlib for mouse operations
+try:
+    import Xlib.display
+    import Xlib.X
+    import Xlib.ext.xtest
+    XLIB_AVAILABLE = True
+except ImportError:
+    XLIB_AVAILABLE = False
 
 
 @dataclass
@@ -21,34 +31,50 @@ def click(x: float, y: float, button: int = 1, clicks: int = 1) -> dict:
         button: Mouse button (1=left, 2=middle, 3=right)
         clicks: Number of clicks (1=single, 2=double, etc.)
     """
-    # Get screen dimensions using xdotool
-    result = subprocess.run(
-        ["xdotool", "getdisplaygeometry"],
-        capture_output=True,
-        text=True
-    )
-    width, height = map(int, result.stdout.strip().split())
+    if not XLIB_AVAILABLE:
+        return {
+            "stdout": "",
+            "stderr": "Xlib not available",
+            "exitCode": -1
+        }
 
-    # Convert relative to absolute coordinates
-    abs_x = int(x * width)
-    abs_y = int(y * height)
+    try:
+        display = Xlib.display.Display(os.environ.get('DISPLAY', ':0'))
+        screen = display.screen()
+        width = screen.width_in_pixels
+        height = screen.height_in_pixels
 
-    # Build xdotool command
-    cmd = ["xdotool", "mousemove", str(abs_x), str(abs_y)]
+        # Convert relative to absolute coordinates
+        abs_x = int(x * width)
+        abs_y = int(y * height)
 
-    # Add click with button and repeat count
-    if clicks > 1:
-        cmd.extend(["click", "--repeat", str(clicks), str(button)])
-    else:
-        cmd.extend(["click", str(button)])
+        # Move mouse
+        root = screen.root
+        root.warp_pointer(abs_x, abs_y)
+        display.sync()
 
-    subprocess.run(cmd)
+        # Perform clicks
+        for _ in range(clicks):
+            Xlib.ext.xtest.fake_input(display, Xlib.X.ButtonPress, button)
+            display.sync()
+            Xlib.ext.xtest.fake_input(display, Xlib.X.ButtonRelease, button)
+            display.sync()
+            if clicks > 1:
+                time.sleep(0.05)  # Small delay between multiple clicks
 
-    return {
-        "stdout": "",
-        "stderr": "",
-        "exitCode": 0
-    }
+        display.close()
+
+        return {
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "exitCode": -1
+        }
 
 
 def move(x: float, y: float) -> dict:
@@ -58,25 +84,40 @@ def move(x: float, y: float) -> dict:
         x: Relative x coordinate (0-1 range)
         y: Relative y coordinate (0-1 range)
     """
-    # Get screen dimensions using xdotool
-    result = subprocess.run(
-        ["xdotool", "getdisplaygeometry"],
-        capture_output=True,
-        text=True
-    )
-    width, height = map(int, result.stdout.strip().split())
+    if not XLIB_AVAILABLE:
+        return {
+            "stdout": "",
+            "stderr": "Xlib not available",
+            "exitCode": -1
+        }
 
-    # Convert relative to absolute coordinates
-    abs_x = int(x * width)
-    abs_y = int(y * height)
+    try:
+        display = Xlib.display.Display(os.environ.get('DISPLAY', ':0'))
+        screen = display.screen()
+        width = screen.width_in_pixels
+        height = screen.height_in_pixels
 
-    subprocess.run(["xdotool", "mousemove", str(abs_x), str(abs_y)])
+        # Convert relative to absolute coordinates
+        abs_x = int(x * width)
+        abs_y = int(y * height)
 
-    return {
-        "stdout": "",
-        "stderr": "",
-        "exitCode": 0
-    }
+        # Move mouse
+        root = screen.root
+        root.warp_pointer(abs_x, abs_y)
+        display.sync()
+        display.close()
+
+        return {
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "exitCode": -1
+        }
 
 
 def scroll(amount: int) -> dict:
@@ -97,42 +138,55 @@ def scroll(amount: int) -> dict:
 
 
 def type(text: str) -> dict:
-    """Type text using xdotool"""
-    subprocess.run(["xdotool", "type", "--", text])
-
-    return {
-        "stdout": "",
-        "stderr": "",
-        "exitCode": 0
-    }
+    """Type text using pyautogui"""
+    try:
+        pyautogui.write(text, interval=0.01)
+        return {
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "exitCode": -1
+        }
 
 
 def hotkey(keys: str) -> dict:
     """Execute hotkey combination. Example: 'super+r' or 'ctrl+alt+t'"""
-    # Parse the keys
-    key_parts = keys.split('+')
+    try:
+        # Parse the keys and map to pyautogui key names
+        key_parts = keys.split('+')
 
-    # Build xdotool command
-    cmd = ["xdotool"]
+        # Map common key names to pyautogui format
+        key_map = {
+            'super': 'winleft',
+            'ctrl': 'ctrl',
+            'alt': 'alt',
+            'shift': 'shift'
+        }
 
-    # Add keydown for all modifier keys
-    for key in key_parts[:-1]:
-        cmd.extend(["keydown", key])
+        # Convert keys to pyautogui format
+        mapped_keys = []
+        for key in key_parts:
+            mapped_keys.append(key_map.get(key.lower(), key.lower()))
 
-    # Add the final key press
-    cmd.extend(["key", key_parts[-1]])
+        # Execute the hotkey
+        pyautogui.hotkey(*mapped_keys)
 
-    # Add keyup for all modifier keys in reverse order
-    for key in reversed(key_parts[:-1]):
-        cmd.extend(["keyup", key])
-
-    subprocess.run(cmd)
-
-    return {
-        "stdout": "",
-        "stderr": "",
-        "exitCode": 0
-    }
+        return {
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "exitCode": -1
+        }
 
 
 def run_shell_command(cmd: str) -> dict:

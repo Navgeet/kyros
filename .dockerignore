@@ -1,0 +1,14 @@
+.git
+.gitignore
+CLAUDE.md
+*.log
+.vscode
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.venv
+agent-workspace
+.claude
+ui/node_modules
+ui/dist

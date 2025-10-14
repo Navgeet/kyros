@@ -1,0 +1,11 @@
+services:
+  kyros-agent:
+    build: .
+    container_name: kyros-agent
+    ports:
+      - "5901:5901"
+    environment:
+      - DISPLAY=:1
+    restart: unless-stopped
+    volumes:
+      - ./agent-workspace:/home/dockeruser/workspace

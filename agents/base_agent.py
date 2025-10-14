@@ -110,7 +110,7 @@ class BaseAgent(ABC):
         return elided_messages
 
     def _log_llm_call(self, log_data: Dict[str, Any]):
-        """Log LLM call to file"""
+        """Log LLM call to file with rotation"""
         try:
             log_entry = {
                 "timestamp": datetime.now().isoformat(),
@@ -118,6 +118,29 @@ class BaseAgent(ABC):
                 "agent_name": self.agent_name,
                 **log_data
             }
+
+            # Ensure logs directory exists
+            log_dir = os.path.dirname(self._llm_log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+
+            # Rotate log file if it exists and is larger than 10MB
+            if os.path.exists(self._llm_log_file):
+                file_size = os.path.getsize(self._llm_log_file)
+                if file_size > 10 * 1024 * 1024:  # 10MB
+                    # Rotate old logs
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    rotated_name = f"{self._llm_log_file}.{timestamp}"
+                    os.rename(self._llm_log_file, rotated_name)
+
+                    # Keep only the last 5 rotated logs
+                    log_files = sorted([
+                        f for f in os.listdir(log_dir)
+                        if f.startswith(os.path.basename(self._llm_log_file) + ".")
+                    ])
+                    if len(log_files) > 5:
+                        for old_log in log_files[:-5]:
+                            os.remove(os.path.join(log_dir, old_log))
 
             with open(self._llm_log_file, 'a') as f:
                 f.write(json.dumps(log_entry, indent=2))

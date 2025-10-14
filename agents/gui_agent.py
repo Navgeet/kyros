@@ -4,7 +4,8 @@ from io import BytesIO
 import subprocess
 import os
 import tempfile
-from PIL import Image
+import time
+from PIL import Image, ImageDraw
 from openai import OpenAI
 from agents.base_agent import BaseAgent
 import tools
@@ -36,6 +37,12 @@ class GUIAgent(BaseAgent):
         self.running = False
         self.compacted_context: str = ""
         self.step_count: int = 0
+
+        # Get screenshot delay from config (default 0.5 seconds)
+        self.screenshot_delay = 0.5
+        if self.config_dict and 'agents' in self.config_dict and 'gui' in self.config_dict['agents']:
+            gui_config = self.config_dict['agents']['gui']
+            self.screenshot_delay = gui_config.get('screenshot_delay', 0.5)
 
         # Setup action generation client (Hugging Face)
         self._setup_action_generation_client()
@@ -96,8 +103,8 @@ tools.click(0.5, 0.3)
 """
 
     def get_screenshot_base64(self) -> str:
-        """Capture screenshot and return as base64-encoded JPEG using scrot"""
-        # Create temp file and close it immediately so scrot can write to it
+        """Capture screenshot and return as base64-encoded JPEG with cursor drawn"""
+        # Create temp file and close it immediately so import can write to it
         temp_fd, temp_path = tempfile.mkstemp(suffix='.png')
         os.close(temp_fd)  # Close the file descriptor immediately
 
@@ -106,26 +113,56 @@ tools.click(0.5, 0.3)
             os.unlink(temp_path)
 
         try:
-            # Capture with scrot (includes mouse cursor with -p flag, ensure DISPLAY is set)
+            # Set up environment
             env = os.environ.copy()
             if 'DISPLAY' not in env:
                 env['DISPLAY'] = ':0'
 
+            # Capture screenshot with import
             result = subprocess.run(
-                ["scrot", "-p", temp_path],
+                ["import", "-window", "root", temp_path],
                 capture_output=True,
                 timeout=2,
                 env=env
             )
 
             if result.returncode != 0:
-                raise RuntimeError(f"scrot failed with code {result.returncode}: {result.stderr.decode()}")
+                raise RuntimeError(f"import failed with code {result.returncode}: {result.stderr.decode()}")
 
             if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
-                raise RuntimeError(f"scrot did not create screenshot file at {temp_path}")
+                raise RuntimeError(f"import did not create screenshot file at {temp_path}")
 
-            # Load and convert to JPEG
+            # Get cursor position using Python Xlib
+            cursor_x, cursor_y = None, None
+            try:
+                import Xlib.display
+                display = Xlib.display.Display(env.get('DISPLAY', ':0'))
+                root = display.screen().root
+                pointer = root.query_pointer()
+                cursor_x = pointer.root_x
+                cursor_y = pointer.root_y
+                display.close()
+            except Exception as e:
+                # If Xlib fails, don't draw cursor
+                pass
+
+            # Load screenshot and draw cursor
             screenshot = Image.open(temp_path)
+
+            # Only draw cursor if we successfully got the position
+            if cursor_x is not None and cursor_y is not None:
+                draw = ImageDraw.Draw(screenshot)
+                # Draw a simple cursor (red circle with white outline)
+                cursor_size = 10
+                draw.ellipse(
+                    [cursor_x - cursor_size, cursor_y - cursor_size,
+                     cursor_x + cursor_size, cursor_y + cursor_size],
+                    fill='red',
+                    outline='white',
+                    width=2
+                )
+
+            # Convert to JPEG
             buffer = BytesIO()
             screenshot.save(buffer, format="JPEG", quality=75)
             buffer.seek(0)
@@ -429,6 +466,13 @@ tools.click(0.5, 0.3)
             # Execute action
             exec_result = self.execute_action(action_code)
 
+            # Log tool execution result
+            print(f"Tool execution result: {exec_result}")
+            if exec_result.get("stderr"):
+                print(f"Tool stderr: {exec_result['stderr']}")
+            if exec_result.get("exitCode") != 0:
+                print(f"Tool failed with exit code: {exec_result['exitCode']}")
+
             # Send execution result
             self.send_llm_update("action_result", {
                 "result": exec_result
@@ -442,6 +486,11 @@ tools.click(0.5, 0.3)
                     "verification": None
                 })
                 break
+
+            # Add delay before taking screenshot to allow UI to update
+            # Skip delay if the action was already a wait command
+            if not "tools.wait" in action_code:
+                time.sleep(self.screenshot_delay)
 
             # Capture screenshot after action
             screenshot_after = self.get_screenshot_base64()
