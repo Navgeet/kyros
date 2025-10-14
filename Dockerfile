@@ -62,6 +62,10 @@ WORKDIR /home/dockeruser/kyros
 USER dockeruser
 RUN uv sync
 
+# Install Playwright browsers (chromium and firefox)
+RUN uv run playwright install chromium firefox
+RUN uv run playwright install-deps chromium firefox
+
 # Make run_agent.sh executable
 RUN chmod +x /home/dockeruser/kyros/run_agent.sh
 

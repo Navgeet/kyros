@@ -60,6 +60,12 @@ agents:
     temperature: 0.5
     max_tokens: 2000
 
+  browser:
+    model: "claude-sonnet-4-5"
+    api_provider: "anthropic"
+    temperature: 0.3
+    max_tokens: 1000
+
 
 # Context compaction settings (used by all agents)
 compaction:
