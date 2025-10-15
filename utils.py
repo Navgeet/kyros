@@ -168,3 +168,43 @@ def strip_json_code_blocks(text: str) -> str:
             if closing != -1:
                 text = text[first_newline+1:closing].strip()
     return text
+
+
+def save_screenshot(screenshot_data: str, prefix: str = "screenshot") -> str:
+    """
+    Save a base64-encoded screenshot to the screenshots directory
+
+    Args:
+        screenshot_data: Base64-encoded image data (with or without data URL prefix)
+        prefix: Prefix for the screenshot filename
+
+    Returns:
+        Path to the saved screenshot file
+    """
+    import base64
+    import os
+    from datetime import datetime
+
+    # Create screenshots directory if it doesn't exist
+    screenshots_dir = "screenshots"
+    os.makedirs(screenshots_dir, exist_ok=True)
+
+    # Generate timestamp-based filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # millisecond precision
+    filename = f"{prefix}_{timestamp}.png"
+    filepath = os.path.join(screenshots_dir, filename)
+
+    # Extract base64 data if it includes the data URL prefix
+    if screenshot_data.startswith("data:image"):
+        # Format: data:image/jpeg;base64,<data> or data:image/png;base64,<data>
+        screenshot_data = screenshot_data.split(",", 1)[1]
+
+    # Decode and save
+    try:
+        image_bytes = base64.b64decode(screenshot_data)
+        with open(filepath, "wb") as f:
+            f.write(image_bytes)
+        return filepath
+    except Exception as e:
+        print(f"Warning: Failed to save screenshot: {e}")
+        return None

@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 from openai import OpenAI
 from agents.base_agent import BaseAgent
 import tools
-from utils import compact_context, count_words
+from utils import compact_context, count_words, save_screenshot
 
 
 class GUIAgent(BaseAgent):
@@ -80,6 +80,7 @@ You are a GUI Agent. Your job is to analyze the given screenshot and execute the
 
 # Tools
 
+- tools.focus_window(window_id): Focus/activate a window by its ID and move mouse to center
 - tools.move(x, y): Move mouse to relative coordinates (x and y are floats between 0 and 1).
 - tools.click(x, y, button=1, clicks=1): Click at relative coordinates (x and y are floats between 0 and 1). button: 1=left, 2=middle, 3=right. clicks: 1=single, 2=double, etc.
 - tools.scroll(amount): Scroll at current mouse position. amount: positive=down, negative=up.
@@ -90,11 +91,19 @@ You are a GUI Agent. Your job is to analyze the given screenshot and execute the
 
 # Rules
 
-- Respond with executable Python code that calls ONE of these tools.
-- Only generate 1 action at a time. Also add a comment before every action.
-- Don't repeat the same action again and again.
+- Respond with executable Python code that calls ONE of these tools
+- Only generate 1 action at a time. Also add a comment before every action
+- Don't repeat the same action again and again
+- Look at the "Currently active windows" list (format: window_id desktop host window_title) to determine which window to focus
+- The mouse cursor looks like a red dot
+- Analyze the screenshot carefully, don't make up GUI elements
 
 # Example
+
+```python
+# Focus the Firefox browser window with ID 0x02400003
+tools.focus_window("0x02400003")
+```
 
 ```python
 # Click on the search box
@@ -399,6 +408,9 @@ tools.click(0.5, 0.3)
             # Get current screenshot
             screenshot = self.get_screenshot_base64()
             active_windows = self.get_active_windows()
+
+            # Save screenshot to disk
+            save_screenshot(screenshot, prefix="gui")
 
             # Send screenshot update
             self.send_llm_update("screenshot", {

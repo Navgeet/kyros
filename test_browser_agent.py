@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Test script for BrowserAgent
+Test script for BrowserBossAgent (new architecture)
 """
 import asyncio
-from agents.browser_agent import BrowserAgent
+from agents.browser_boss_agent import BrowserBossAgent
 import config
 
 
@@ -11,17 +11,21 @@ def main():
     # Load config
     config_dict = config.load_config()
 
-    # Create browser agent
-    agent = BrowserAgent(config_dict=config_dict)
+    # Create browser boss agent
+    agent = BrowserBossAgent(config_dict=config_dict)
 
-    # Test task: Navigate to a website and take a screenshot
+    # Test task: Navigate to a website and interact with elements
     message = {
         "content": """
         Please do the following:
         1. Launch a browser
         2. Navigate to https://testsheepnz.github.io/BasicCalculator.html
+        3. Find the input field for the first number and enter "5"
+        4. Find the input field for the second number and enter "3"
+        5. Find and click the "Add" button
+        6. Exit with success
         """,
-        "max_iterations": 10
+        "max_iterations": 30
     }
 
     print("Starting BrowserAgent test...")

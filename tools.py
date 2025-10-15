@@ -126,15 +126,22 @@ def scroll(amount: int) -> dict:
     Args:
         amount: Scroll amount (positive=down, negative=up)
     """
-    # pyautogui.scroll() takes positive for up, negative for down
-    # We want positive for down, so negate the amount
-    pyautogui.scroll(-amount)
+    try:
+        # pyautogui.scroll() takes positive for up, negative for down
+        # We want positive for down, so negate the amount
+        pyautogui.scroll(-amount)
 
-    return {
-        "stdout": "",
-        "stderr": "",
-        "exitCode": 0
-    }
+        return {
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "exitCode": -1
+        }
 
 
 def type(text: str) -> dict:
@@ -218,6 +225,95 @@ def wait(n: float) -> dict:
         "stderr": "",
         "exitCode": 0
     }
+
+
+def focus_window(window_id: str) -> dict:
+    """Focus a window by its ID using wmctrl and move mouse to center
+
+    Args:
+        window_id: Window ID in hexadecimal format (e.g., '0x02400003')
+    """
+    try:
+        # Use wmctrl to activate the window by ID
+        # -i -a activates the window by ID
+        result = subprocess.run(
+            ["wmctrl", "-i", "-a", window_id],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+
+        if result.returncode == 0:
+            # Get window geometry to move mouse to center
+            # -l -G provides geometry: WID DESKTOP X Y W H
+            time.sleep(0.1)  # Small delay to ensure window is focused
+            geom_result = subprocess.run(
+                ["wmctrl", "-l", "-G"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+
+            # Parse geometry for our window
+            if geom_result.returncode == 0:
+                for line in geom_result.stdout.splitlines():
+                    parts = line.split(None, 6)  # Split into max 7 parts
+                    if len(parts) >= 6 and parts[0] == window_id:
+                        # Extract window position and size
+                        x = int(parts[2])
+                        y = int(parts[3])
+                        width = int(parts[4])
+                        height = int(parts[5])
+
+                        # Calculate center of window (absolute coordinates)
+                        center_x = x + width // 2
+                        center_y = y + height // 2
+
+                        # Get screen dimensions to convert to relative coordinates
+                        if XLIB_AVAILABLE:
+                            display = Xlib.display.Display(os.environ.get('DISPLAY', ':0'))
+                            screen = display.screen()
+                            screen_width = screen.width_in_pixels
+                            screen_height = screen.height_in_pixels
+                            display.close()
+
+                            # Convert to relative coordinates and move mouse
+                            rel_x = center_x / screen_width
+                            rel_y = center_y / screen_height
+                            move(rel_x, rel_y)
+
+                        break
+
+            return {
+                "stdout": f"Focused window: {window_id}",
+                "stderr": "",
+                "exitCode": 0
+            }
+        else:
+            # Try listing windows to provide helpful error
+            list_result = subprocess.run(
+                ["wmctrl", "-l"],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            return {
+                "stdout": "",
+                "stderr": f"Could not find window with ID '{window_id}'. Available windows:\n{list_result.stdout}",
+                "exitCode": -1
+            }
+    except FileNotFoundError:
+        return {
+            "stdout": "",
+            "stderr": "wmctrl not installed. Install with: sudo apt-get install wmctrl",
+            "exitCode": -1
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": str(e),
+            "exitCode": -1
+        }
 
 
 def exit(message: str, exit_code: int = 0) -> None:
