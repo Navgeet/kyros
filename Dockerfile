@@ -53,27 +53,32 @@ RUN mkdir -p /home/dockeruser/.vnc
 # Copy VNC startup script and entrypoint
 USER root
 COPY xstartup /home/dockeruser/.vnc/xstartup
-COPY entrypoint.sh /home/dockeruser/entrypoint.sh
-RUN chown dockeruser:dockeruser /home/dockeruser/.vnc/xstartup /home/dockeruser/entrypoint.sh && \
-    chmod +x /home/dockeruser/.vnc/xstartup /home/dockeruser/entrypoint.sh
+RUN chown dockeruser:dockeruser /home/dockeruser/.vnc/xstartup && \
+    chmod +x /home/dockeruser/.vnc/xstartup
 
-# Copy agent code
-COPY --chown=dockeruser:dockeruser . /home/dockeruser/kyros/
+# Install Playwright browsers as dockeruser (at build time)
+USER dockeruser
 WORKDIR /home/dockeruser/kyros
 
-# Install Python dependencies
-USER dockeruser
-RUN uv sync
+# Install Playwright in user directory (not system-wide)
+RUN python3 -m pip install --user --break-system-packages playwright
+RUN /home/dockeruser/.local/bin/playwright install chromium firefox
 
-# Install Playwright browsers (chromium and firefox)
-RUN uv run playwright install chromium firefox
-RUN uv run playwright install-deps chromium firefox
+# Install system dependencies for Playwright as root
+USER root
+RUN su - dockeruser -c "/home/dockeruser/.local/bin/playwright install-deps chromium firefox"
 
-# Make run_agent.sh executable
-RUN chmod +x /home/dockeruser/kyros/run_agent.sh
+# Copy entrypoint and set permissions
+COPY entrypoint.sh /home/dockeruser/entrypoint.sh
+RUN chown dockeruser:dockeruser /home/dockeruser/entrypoint.sh && \
+    chmod +x /home/dockeruser/entrypoint.sh
 
+# Switch back to dockeruser
 USER dockeruser
 WORKDIR /home/dockeruser
+
+# Note: All code and Python dependencies will be available via volume mount at runtime (see docker-compose.yml)
+# Python dependencies will be installed when the container starts via uv sync
 
 # Expose VNC port
 EXPOSE 5901

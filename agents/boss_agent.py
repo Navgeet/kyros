@@ -45,10 +45,9 @@ You are a computer-use agent. You coordinate tasks by delegating to specialized 
 
 1. **BrowserBossAgent**: Handles browser automation and web interactions (PREFERRED for browser tasks)
    - Use for: navigating websites, filling forms, clicking web elements, web automation
-   - Automatically uses GUI agent for visual element location and XPath for precise element targeting
 
 2. **GUIAgent**: Handles mouse and keyboard interactions with GUI
-   - Use for: clicking, typing, hotkeys, GUI automation on desktop applications (NOT browsers)
+   - Use for: clicking, typing, hotkeys, scrolling
 
 3. **ShellAgent**: Executes shell commands
    - Use for: running terminal commands, file operations, system tasks
@@ -59,48 +58,60 @@ You are a computer-use agent. You coordinate tasks by delegating to specialized 
 ## Your Responsibilities
 
 1. Analyze the user's request and the current screenshot
-2. For a complex task, first create a comprehensive plan and get that approved from user
+2. **IMPORTANT**: For ANY task that requires multiple steps or involves testing/exploration, you MUST:
+   - First create a detailed, numbered plan
+   - Present the plan to the user using "message" action type with "wait_for_response": true
+   - Wait for user approval before proceeding
+   - Only after approval, start delegating subtasks
 3. Delegate manageable subtasks to sub-agents
 4. Handle agent responses and coordinate multi-step workflows
 5. Report results back to the user
 
+## Planning Guidelines
+
+- Create a plan if the task involves: testing, debugging, exploring, multiple operations, complex workflows
+- Simple single-step tasks (like "open chrome") don't need a plan
+- Multi-step tasks MUST have a plan
+- The plan should be specific, actionable, and comprehensive
+
 
 ## Example outputs
 
-task delegation:
+presenting a plan (REQUIRED for multi-step tasks):
 {
-  "thought": "Your reasoning about the task",
+  "thought": "This is a complex task requiring multiple steps. I need to create a plan and get user approval first.",
   "action": {
-    "type": "delegate",
-    "agent": "BrowserBossAgent|GUIAgent|ShellAgent|ResearchAgent",
-    "message": "task for the agent (e.g., 'Find all Python files', NOT 'run find . -name *.py')"
+    "type": "message",
+    "message": "I'll help you test the calculator app for bugs. Here's my testing plan:\n\n1. Open the calculator URL in browser\n2. Test basic arithmetic operations\n3. Test edge cases (division by zero, large numbers, decimals)\n4. Test UI responsiveness\n5. Document all bugs found\n\nDoes this approach look good?",
+    "wait_for_response": true
   }
 }
 
-communication with user:
+task delegation (AFTER plan approval):
 {
-  "thought": "Your reasoning about the task",
+  "thought": "User approved the plan. Starting step 1: opening the calculator in browser.",
   "action": {
-    "type": "message",
-    "message": "does this plan look good?",
-    "wait_for_response": true
+    "type": "delegate",
+    "agent": "BrowserBossAgent",
+    "message": "Open https://example.com/calculator.html in browser"
   }
 }
 
 finishing up:
 {
-  "thought": "Your reasoning about the task",
+  "thought": "All steps completed. Reporting results to user.",
   "action": {
     "type": "exit",
-    "message": "a helpful message to be sent to user"
+    "message": "Testing complete. Found 3 bugs: [bug details]"
   }
 }
 
 ## Important Rules
 
 - CRITICAL: Respond with ONLY valid JSON. Do NOT include any text before or after the JSON.
+- **MANDATORY**: If this is the FIRST response to a multi-step task, you MUST present a plan with "wait_for_response": true. Do NOT start delegating immediately.
 - Always analyze the screenshot before making decisions
-- When delegating: don't send the exact shell command or click coordinate, let the agent figure it out.
+- When delegating: don't send the exact shell command or click coordinate, let the agent figure it out
 - When delegating: don't send too large or too small a task, achieve a middle ground
 - Use "exit" action type when the task is complete
 
@@ -200,7 +211,27 @@ Your response must be ONLY a JSON object with no additional text:
             if self.compacted_context:
                 context_parts.append(f"Previous Context (compacted):\n{self.compacted_context}\n\n")
 
-            context_parts.append(f"User Request: {message.get('content', '')}\n\nAgent Responses: {message.get('agent_responses', [])}")
+            # Build conversation history with boss responses
+            context_parts.append(f"User Request: {message.get('content', '')}\n\n")
+
+            # Include previous boss responses (plans, thoughts) and agent responses
+            if self.response_history:
+                context_parts.append("# Conversation History\n\n")
+                for idx, entry in enumerate(self.response_history[:-1], 1):  # Exclude current entry
+                    if "boss_response" in entry:
+                        boss_resp = entry["boss_response"]
+                        if boss_resp.get("thought"):
+                            context_parts.append(f"Step {idx} - Your thought: {boss_resp['thought']}\n")
+                        if boss_resp.get("action", {}).get("message"):
+                            context_parts.append(f"Step {idx} - Your message: {boss_resp['action']['message']}\n\n")
+
+                    if entry.get("agent_responses"):
+                        for agent_resp in entry["agent_responses"]:
+                            agent_type = agent_resp.get("agent_type", "Unknown")
+                            response = agent_resp.get("response", {})
+                            context_parts.append(f"Step {idx} - {agent_type} response: {response}\n\n")
+
+            context_parts.append(f"Current Agent Responses: {message.get('agent_responses', [])}")
 
             # Build messages for LLM
             messages = [
@@ -246,6 +277,14 @@ Your response must be ONLY a JSON object with no additional text:
                     }
                 }
 
+            # Store the boss agent's own response in history for next iteration
+            # This ensures plans and thoughts are retained across iterations
+            if self.response_history:
+                self.response_history[-1]["boss_response"] = {
+                    "thought": response_data.get("thought", ""),
+                    "action": response_data.get("action", {})
+                }
+
             return response_data
 
         except Exception as e:
@@ -289,6 +328,12 @@ Your response must be ONLY a JSON object with no additional text:
             elif agent_type == "ResearchAgent":
                 from agents.research_agent import ResearchAgent
                 agent = ResearchAgent(
+                    websocket_callback=self.websocket_callback,
+                    config_dict=self.config_dict
+                )
+            elif agent_type == "BrowserActionAgent":
+                from agents.browser_action_agent import BrowserActionAgent
+                agent = BrowserActionAgent(
                     websocket_callback=self.websocket_callback,
                     config_dict=self.config_dict
                 )

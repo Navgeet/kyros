@@ -1,5 +1,7 @@
 import asyncio
 import json
+import base64
+import re
 from typing import Dict, Any, Optional, Callable, List
 from agents.base_agent import BaseAgent
 from playwright.async_api import Page
@@ -7,7 +9,7 @@ from utils import strip_json_code_blocks
 
 
 class XPathAgent(BaseAgent):
-    """XPath agent that finds and validates XPath for elements at given coordinates"""
+    """XPath agent that generates XPath expressions from HTML source and query using LLM"""
 
     def __init__(
         self,
@@ -15,8 +17,10 @@ class XPathAgent(BaseAgent):
         api_key: str = None,
         base_url: str = None,
         websocket_callback: Optional[Callable] = None,
-        config_dict: Dict[str, Any] = None
+        config_dict: Dict[str, Any] = None,
+        browser_action_agent = None
     ):
+        # Initialize with XPath config for generation (uses Claude)
         super().__init__(
             agent_id=agent_id,
             api_key=api_key,
@@ -27,681 +31,235 @@ class XPathAgent(BaseAgent):
         )
         self.config_dict = config_dict
         self.page: Optional[Page] = None
+        self.browser_action_agent = browser_action_agent
+
+        # Create a separate client for verification (uses Qwen via Novita)
+        self._init_verification_client()
+
+    def _init_verification_client(self):
+        """Initialize verification client using GUI agent config (Qwen via Novita)"""
+        import config
+        from openai import OpenAI
+
+        # Get GUI agent config for verification (uses Qwen)
+        gui_config = config.get_agent_config("gui", self.config_dict)
+
+        self.verification_api_key = gui_config.get("api_key")
+        self.verification_base_url = gui_config.get("base_url")
+        self.verification_model = gui_config.get("model")
+        self.verification_temperature = gui_config.get("temperature", 0.6)
+        self.verification_max_tokens = gui_config.get("max_tokens", 30000)
+
+        # Create OpenAI client for Qwen/Novita
+        self.verification_client = OpenAI(
+            api_key=self.verification_api_key,
+            base_url=self.verification_base_url
+        )
 
     def get_system_prompt(self) -> str:
         """Get the system prompt for the XPath agent"""
         return """# Identity
 
-You are an XPath Verification Agent that analyzes XPath expressions and element information to determine if the XPath is suitable.
+You are an XPath Generation Agent that creates XPath expressions from HTML source code.
 
 # Your Task
 
 You will be given:
-- An XPath expression
-- Element information (tag, class, id, text, role, etc.)
-- Verification results (uniqueness, validity)
+- HTML source code of a page (cleaned, without <head>, <script> tags)
+- A query describing which element to find (e.g., "find xpath for submit button")
 
-You need to decide if this XPath is suitable or if we should try the parent element.
+You need to generate an XPath expression that uniquely identifies the target element.
 
-# Decision Criteria
+# XPath Generation Guidelines
 
-An XPath is suitable if:
-- It is unique (verification passed)
-- The element is interactive (button, link, input, etc.) OR semantically meaningful
-- The element is not too generic (e.g., not just a div with no semantic meaning)
-
-An XPath is NOT suitable if:
-- It's a generic container (div, span) with no semantic meaning
-- It's not the actual interactive element the user intended
-- There's likely a better parent element that is interactive
+1. Prefer readable, maintainable XPath expressions
+2. Use semantic attributes when available (id, name, type, role, aria-label)
+3. Avoid overly specific positional selectors unless necessary
+4. Ensure the XPath is unique
+5. Consider multiple candidates and choose the most reliable one
 
 # Response Format
 
-If the XPath is suitable:
+Respond with JSON containing your thought process and the XPath:
+
 ```json
 {
-  "thought": "Explanation of why this XPath is good",
-  "suitable": true,
-  "xpath": "the_xpath_here"
+  "thought": "Explanation of your reasoning and element analysis",
+  "xpath": "//button[@type='submit']",
+  "alternatives": ["//input[@value='Submit']", "//button[contains(text(), 'Submit')]"],
+  "confidence": "high"
 }
 ```
 
-If we should try the parent element:
+Confidence levels:
+- "high": Element has clear semantic attributes or unique identifiers
+- "medium": Element can be identified but may need visual confirmation
+- "low": Element is ambiguous or may have multiple matches
+
+# Examples
+
+Query: "find xpath for email input field"
 ```json
 {
-  "thought": "Explanation of why we should try parent",
-  "suitable": false,
-  "try_parent": true
+  "thought": "Looking for an input element for email. Found input with type='email' and id='email-input', which is semantically correct and has a unique ID.",
+  "xpath": "//input[@id='email-input']",
+  "alternatives": ["//input[@type='email']", "//input[@name='email']"],
+  "confidence": "high"
 }
 ```
 
-If we've gone too far up (e.g., reached body/html):
+Query: "find xpath for login button"
 ```json
 {
-  "thought": "Explanation of why we should stop",
-  "suitable": true,
-  "xpath": "the_best_xpath_we_found"
+  "thought": "Found a button with text 'Log In' and class 'login-btn'. The button text is distinctive and the class suggests it's the primary login button.",
+  "xpath": "//button[contains(@class, 'login-btn')]",
+  "alternatives": ["//button[contains(text(), 'Log In')]", "//button[@type='submit']"],
+  "confidence": "medium"
 }
 ```
 """
+
+    def clean_html(self, html: str) -> str:
+        """Clean HTML by removing head, script, and style tags"""
+        print(f"[DEBUG] clean_html called, input length: {len(html)}")
+        # Remove head tag and its contents
+        html = re.sub(r'<head\b[^>]*>.*?</head>', '', html, flags=re.DOTALL | re.IGNORECASE)
+
+        # Remove script tags and their contents
+        html = re.sub(r'<script\b[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+
+        # Remove style tags and their contents
+        html = re.sub(r'<style\b[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+
+        # Remove comments
+        html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL).strip()
+        print(f"[DEBUG] clean_html done, output length: {len(html)}")
+        # Comment out the print of full HTML as it's very verbose
+        # print(html)
+
+        return html
 
     def set_page(self, page: Page):
         """Set the browser page to work with"""
         self.page = page
 
-    async def _get_xpath_at_mouse_position(self) -> Dict[str, Any]:
-        """Get XPath of element at current mouse position by simulating a click"""
+    async def get_page_html(self) -> str:
+        """Get the HTML source of the current page"""
+        print(f"[DEBUG] get_page_html called, self.page = {self.page}")
+
+        # Get page from browser_action_agent if not set
+        if not self.page and self.browser_action_agent:
+            print("[DEBUG] Getting page from browser_action_agent")
+            self.page = self.browser_action_agent.get_page()
+
+        if not self.page:
+            print("[DEBUG] No page available, returning empty string")
+            return ""
+
+        print(f"[DEBUG] About to call page.content()")
+        html = await self.page.content()
+        print(f"[DEBUG] Got HTML content, length: {len(html)}")
+        return self.clean_html(html)
+
+    async def highlight_and_screenshot(self, xpath: str) -> Dict[str, Any]:
+        """Highlight element by XPath and take screenshot"""
         try:
             if not self.page:
                 return {
                     "success": False,
-                    "error": "No active browser page"
+                    "error": "No active browser page",
+                    "screenshot": None
                 }
 
-            # Step 1: Install a click listener to capture the element
-            await self.page.evaluate("""
-                () => {
-                    // Remove any existing click listener
-                    if (window.__xpath_click_handler__) {
-                        document.removeEventListener('click', window.__xpath_click_handler__, true);
-                    }
+            # Highlight the element
+            highlight_script = """
+            (xpath) => {
+              try {
+                // Remove any existing highlight boxes
+                const existingBoxes = document.querySelectorAll('.xpath-highlight-box');
+                existingBoxes.forEach(box => box.remove());
 
-                    // Create new click handler
-                    window.__xpath_click_handler__ = (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.stopImmediatePropagation();
+                // Evaluate XPath
+                const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                const element = result.singleNodeValue;
 
-                        // Store the clicked element
-                        window.__xpath_current_element__ = e.target;
-
-                        // Remove the listener immediately after capturing
-                        document.removeEventListener('click', window.__xpath_click_handler__, true);
-                    };
-
-                    // Add click listener with capture phase to intercept before any other handlers
-                    document.addEventListener('click', window.__xpath_click_handler__, true);
-                }
-            """)
-
-            # Step 2: Simulate a mouse click at current position
-            # This will trigger the click event and capture the element
-            import pyautogui
-            pyautogui.click()
-
-            # Step 3: Wait a bit for the click to register
-            await asyncio.sleep(0.1)
-
-            # Step 4: Extract the element info and highlight it
-            xpath_script = """
-            () => {
-              const el = window.__xpath_current_element__;
-              if (!el) return null;
-
-              // Remove any existing highlight boxes
-              const existingBoxes = document.querySelectorAll('.xpath-highlight-box');
-              existingBoxes.forEach(box => box.remove());
-
-              // Create highlight box
-              const highlightBox = document.createElement('div');
-              highlightBox.className = 'xpath-highlight-box';
-              Object.assign(highlightBox.style, {
-                position: 'absolute',
-                background: 'rgba(0,123,255,0.15)',
-                border: '2px solid rgba(0,123,255,0.9)',
-                borderRadius: '4px',
-                pointerEvents: 'none',
-                zIndex: '2147483647',
-                boxSizing: 'border-box'
-              });
-              document.body.appendChild(highlightBox);
-
-              // Position highlight on element
-              const rect = el.getBoundingClientRect();
-              highlightBox.style.width = rect.width + 'px';
-              highlightBox.style.height = rect.height + 'px';
-              highlightBox.style.left = rect.left + window.scrollX + 'px';
-              highlightBox.style.top = rect.top + window.scrollY + 'px';
-
-              // Generate XPath
-              function getXPath(el) {
-                if (!el || el.nodeType !== 1) return '';
-                if (el.id) return `//*[@id="${el.id}"]`;
-                const parts = [];
-                for (; el && el.nodeType === 1; el = el.parentNode) {
-                  const name = el.localName.toLowerCase();
-                  let index = 1;
-                  for (let sib = el.previousSibling; sib; sib = sib.previousSibling) {
-                    if (sib.nodeType === 1 && sib.localName.toLowerCase() === name) index++;
-                  }
-                  parts.unshift(`${name}[${index}]`);
-                }
-                return '/' + parts.join('/');
-              }
-
-              const xpath = getXPath(el);
-              return {
-                xpath: xpath,
-                element: {
-                  tagName: el.tagName,
-                  id: el.id,
-                  className: el.className,
-                  text: el.textContent.substring(0, 100),
-                  type: el.type || '',
-                  role: el.getAttribute('role') || '',
-                  ariaLabel: el.getAttribute('aria-label') || ''
-                }
-              };
-            }
-            """
-
-            result = await self.page.evaluate(xpath_script)
-
-            if result is None:
-                return {
-                    "success": False,
-                    "error": "No element found at mouse position"
+                if (!element) {
+                  return { found: false, count: 0 };
                 }
 
-            return {
-                "success": True,
-                "message": "Element highlighted and XPath extracted",
-                "xpath": result.get("xpath"),
-                "element": result.get("element")
-            }
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return {
-                "success": False,
-                "error": str(e)
-            }
+                // Count how many elements match
+                const countResult = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                const count = countResult.snapshotLength;
 
-    async def _get_xpath(self) -> Dict[str, Any]:
-        """Get XPath of current element (after initial coords or parent move)"""
-        try:
-            if not self.page:
-                return {
-                    "success": False,
-                    "error": "No active browser page"
-                }
+                // Store the element globally
+                window.__xpath_current_element__ = element;
 
-            xpath_script = """
-            () => {
-              const el = window.__xpath_current_element__;
-              if (!el) return null;
+                // Create highlight box
+                const highlightBox = document.createElement('div');
+                highlightBox.className = 'xpath-highlight-box';
+                Object.assign(highlightBox.style, {
+                  position: 'absolute',
+                  background: 'rgba(0,123,255,0.15)',
+                  border: '3px solid red',
+                  borderRadius: '4px',
+                  pointerEvents: 'none',
+                  zIndex: '2147483647',
+                  boxSizing: 'border-box'
+                });
+                document.body.appendChild(highlightBox);
 
-              function getXPath(el) {
-                if (!el || el.nodeType !== 1) return '';
-                if (el.id) return `//*[@id="${el.id}"]`;
-                const parts = [];
-                for (; el && el.nodeType === 1; el = el.parentNode) {
-                  const name = el.localName.toLowerCase();
-                  let index = 1;
-                  for (let sib = el.previousSibling; sib; sib = sib.previousSibling) {
-                    if (sib.nodeType === 1 && sib.localName.toLowerCase() === name) index++;
-                  }
-                  parts.unshift(`${name}[${index}]`);
-                }
-                return '/' + parts.join('/');
-              }
-
-              const xpath = getXPath(el);
-              return {
-                xpath: xpath,
-                element: {
-                  tagName: el.tagName,
-                  id: el.id,
-                  className: el.className,
-                  text: el.textContent.substring(0, 100),
-                  type: el.type || '',
-                  role: el.getAttribute('role') || '',
-                  ariaLabel: el.getAttribute('aria-label') || ''
-                }
-              };
-            }
-            """
-
-            result = await self.page.evaluate(xpath_script)
-
-            if result is None:
-                return {
-                    "success": False,
-                    "error": "No current element found"
-                }
-
-            return {
-                "success": True,
-                "message": "XPath extracted from current element",
-                "xpath": result.get("xpath"),
-                "element": result.get("element")
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-    async def _try_parent_element(self) -> Dict[str, Any]:
-        """Try to get XPath of the parent element"""
-        try:
-            if not self.page:
-                return {
-                    "success": False,
-                    "error": "No active browser page"
-                }
-
-            xpath_script = """
-            () => {
-              const el = window.__xpath_current_element__;
-              if (!el || !el.parentNode || el.parentNode.nodeType !== 1) {
-                return null;
-              }
-
-              // Move to parent
-              window.__xpath_current_element__ = el.parentNode;
-              const parent = window.__xpath_current_element__;
-
-              // Update highlight
-              const highlightBox = document.querySelector('.xpath-highlight-box');
-              if (highlightBox) {
-                const rect = parent.getBoundingClientRect();
+                // Position highlight on element
+                const rect = element.getBoundingClientRect();
                 highlightBox.style.width = rect.width + 'px';
                 highlightBox.style.height = rect.height + 'px';
                 highlightBox.style.left = rect.left + window.scrollX + 'px';
                 highlightBox.style.top = rect.top + window.scrollY + 'px';
-              }
 
-              function getXPath(el) {
-                if (!el || el.nodeType !== 1) return '';
-                if (el.id) return `//*[@id="${el.id}"]`;
-                const parts = [];
-                for (; el && el.nodeType === 1; el = el.parentNode) {
-                  const name = el.localName.toLowerCase();
-                  let index = 1;
-                  for (let sib = el.previousSibling; sib; sib = sib.previousSibling) {
-                    if (sib.nodeType === 1 && sib.localName.toLowerCase() === name) index++;
-                  }
-                  parts.unshift(`${name}[${index}]`);
-                }
-                return '/' + parts.join('/');
-              }
-
-              const xpath = getXPath(parent);
-              return {
-                xpath: xpath,
-                element: {
-                  tagName: parent.tagName,
-                  id: parent.id,
-                  className: parent.className,
-                  text: parent.textContent.substring(0, 100),
-                  type: parent.type || '',
-                  role: parent.getAttribute('role') || '',
-                  ariaLabel: parent.getAttribute('aria-label') || ''
-                }
-              };
-            }
-            """
-
-            result = await self.page.evaluate(xpath_script)
-
-            if result is None:
-                return {
-                    "success": False,
-                    "error": "No parent element found or already at root"
-                }
-
-            return {
-                "success": True,
-                "message": "Moved to parent element and extracted XPath",
-                "xpath": result.get("xpath"),
-                "element": result.get("element")
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-    async def verify_xpath(self, xpath: str, element_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Verify that the XPath is unique and points to the correct element using screenshot"""
-        try:
-            if not self.page:
-                return {
-                    "valid": False,
-                    "reason": "No active browser page",
-                    "screenshot": None
-                }
-
-            # First, do basic XPath validation
-            verification_script = """
-            (xpath) => {
-              try {
-                const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-                const count = result.snapshotLength;
-
-                if (count === 0) {
-                  return {
-                    valid: false,
-                    reason: "XPath does not match any elements"
-                  };
-                }
-
-                if (count > 1) {
-                  return {
-                    valid: false,
-                    reason: `XPath matches ${count} elements, not unique`
-                  };
-                }
-
-                const element = result.snapshotItem(0);
-                const currentElement = window.__xpath_current_element__;
-
-                if (element !== currentElement) {
-                  return {
-                    valid: false,
-                    reason: "XPath points to a different element than expected"
-                  };
-                }
-
-                // Check if element is interactive
-                const tagName = element.tagName.toLowerCase();
-                const isInteractive = ['a', 'button', 'input', 'select', 'textarea'].includes(tagName) ||
-                                     element.onclick !== null ||
-                                     element.hasAttribute('onclick') ||
-                                     element.getAttribute('role') === 'button';
+                // Scroll element into view if needed
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
                 return {
-                  valid: true,
-                  isInteractive: isInteractive,
-                  reason: `XPath is unique and correct. Element: ${element.tagName}${element.id ? '#' + element.id : ''}${element.className ? '.' + element.className.split(' ').join('.') : ''}`
+                  found: true,
+                  count: count,
+                  tagName: element.tagName,
+                  id: element.id || '',
+                  className: element.className || '',
+                  text: element.textContent ? element.textContent.substring(0, 100) : ''
                 };
               } catch (e) {
-                return {
-                  valid: false,
-                  reason: `Error evaluating XPath: ${e.message}`
-                };
+                return { found: false, error: e.message };
               }
             }
             """
 
-            basic_result = await self.page.evaluate(verification_script, xpath)
+            highlight_result = await self.page.evaluate(highlight_script, xpath)
 
-            # Take a screenshot showing the highlighted element
-            import base64
+            if not highlight_result.get("found"):
+                return {
+                    "success": False,
+                    "error": highlight_result.get("error", "Element not found"),
+                    "screenshot": None,
+                    "count": highlight_result.get("count", 0)
+                }
+
+            # Wait a bit for scrolling
+            await asyncio.sleep(0.3)
+
+            # Take screenshot
             screenshot_bytes = await self.page.screenshot()
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode('utf-8')
             screenshot_data = f"data:image/png;base64,{screenshot_b64}"
 
             return {
-                "valid": basic_result.get("valid", False),
-                "reason": basic_result.get("reason", "Unknown"),
-                "isInteractive": basic_result.get("isInteractive", False),
-                "screenshot": screenshot_data
-            }
-
-        except Exception as e:
-            return {
-                "valid": False,
-                "reason": f"Error during verification: {str(e)}",
-                "screenshot": None
-            }
-
-    def _exit(self, message: str, exitCode: int = 0) -> Dict[str, Any]:
-        """Exit the agent"""
-        return {
-            "success": True,
-            "exit": True,
-            "message": message,
-            "exitCode": exitCode
-        }
-
-    async def execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an action"""
-        tool = action.get("tool")
-        args = action.get("args", {})
-
-        try:
-            if tool == "get_xpath":
-                return await self._get_xpath()
-            elif tool == "try_parent_element":
-                return await self._try_parent_element()
-            elif tool == "exit":
-                return self._exit(**args)
-            else:
-                return {
-                    "success": False,
-                    "error": f"Unknown tool: {tool}"
-                }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a message and find XPath"""
-        try:
-            # Try to get the running event loop
-            loop = asyncio.get_running_loop()
-            # If we're already in an event loop, we need to schedule the coroutine
-            # We'll use asyncio.ensure_future and block until it completes
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    lambda: asyncio.run(self._process_message_async(message))
-                )
-                return future.result()
-        except RuntimeError:
-            # No event loop running, safe to use asyncio.run()
-            return asyncio.run(self._process_message_async(message))
-
-    async def _process_message_async(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Async version of process_message"""
-        try:
-            max_iterations = message.get("max_iterations", 10)
-            iteration = 0
-            history: List[Dict[str, Any]] = []
-
-            # Step 1: Get element at mouse position by simulating click (no LLM needed)
-            print(f"Getting element at mouse position (will simulate click)...")
-            initial_result = await self._get_xpath_at_mouse_position()
-            if not initial_result.get("success"):
-                return {
-                    "success": False,
-                    "error": initial_result.get("error", "Failed to get initial element"),
-                    "iterations": 0,
-                    "history": []
-                }
-
-            xpath = initial_result.get("xpath")
-            element_info = initial_result.get("element")
-
-            # Verify the xpath with screenshot
-            verification_result = await self.verify_xpath(xpath, element_info)
-            verification_text = f"✓ Valid: {verification_result['reason']}. Interactive: {verification_result.get('isInteractive', False)}" if verification_result['valid'] else f"✗ Invalid: {verification_result['reason']}"
-            print(f"Initial element: {element_info.get('tagName')} - {verification_text}")
-
-            # Send initial state update
-            self.send_llm_update("xpath_found", {
-                "xpath": xpath,
-                "element": element_info,
-                "verification": verification_text,
-                "screenshot": verification_result.get("screenshot")
-            })
-
-            history.append({
-                "action": "get_initial_element",
-                "xpath": xpath,
-                "element": element_info,
-                "verification": verification_text,
-                "screenshot": verification_result.get("screenshot")
-            })
-
-            # Now iterate, asking LLM if this xpath is suitable or if we should try parent
-            best_xpath = xpath  # Keep track of best xpath found
-
-            while iteration < max_iterations:
-                iteration += 1
-
-                # Build context for LLM verification with screenshot
-                context_text = f"""# Current Element Analysis
-
-XPath: {xpath}
-Element Info:
-- Tag: {element_info.get('tagName')}
-- ID: {element_info.get('id', 'none')}
-- Class: {element_info.get('className', 'none')}
-- Text: {element_info.get('text', 'none')}
-- Type: {element_info.get('type', 'none')}
-- Role: {element_info.get('role', 'none')}
-- Aria Label: {element_info.get('ariaLabel', 'none')}
-
-Verification: {verification_text}
-
-The screenshot shows the element highlighted in blue. Is this XPath suitable, or should we try the parent element?
-"""
-
-                # Include screenshot in the message
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": context_text
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": verification_result.get("screenshot")
-                                }
-                            }
-                        ]
-                    }
-                ]
-
-                # Ask LLM to verify
-                response = self.call_llm(
-                    messages=messages,
-                    system=self.get_system_prompt()
-                )
-
-                # Parse response
-                try:
-                    cleaned_response = strip_json_code_blocks(response)
-                    response_data = json.loads(cleaned_response)
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse LLM response: {e}")
-                    print(f"Response was: {response}")
-                    # If we can't parse, return the best xpath we have
-                    return {
-                        "success": True,
-                        "xpath": best_xpath,
-                        "iterations": iteration,
-                        "history": history,
-                        "note": "LLM response parse error, returning best xpath found"
-                    }
-
-                # Send thought update
-                thought = response_data.get("thought", "")
-                print(f"LLM decision: {thought}")
-
-                self.send_llm_update("thought", {
-                    "thought": thought,
-                    "iteration": iteration
-                })
-
-                # Check if suitable
-                if response_data.get("suitable", False):
-                    final_xpath = response_data.get("xpath", xpath)
-                    print(f"✓ XPath accepted: {final_xpath}")
-
-                    history.append({
-                        "action": "llm_verification",
-                        "thought": thought,
-                        "decision": "suitable",
-                        "final_xpath": final_xpath
-                    })
-
-                    return {
-                        "success": True,
-                        "xpath": final_xpath,
-                        "iterations": iteration,
-                        "history": history
-                    }
-
-                # Try parent element
-                if response_data.get("try_parent", False):
-                    print("Trying parent element...")
-
-                    parent_result = await self._try_parent_element()
-
-                    if not parent_result.get("success"):
-                        # Can't go further up, return current xpath
-                        print(f"✓ Cannot go further up, returning: {best_xpath}")
-                        history.append({
-                            "action": "try_parent",
-                            "thought": thought,
-                            "result": "no_parent",
-                            "final_xpath": best_xpath
-                        })
-                        return {
-                            "success": True,
-                            "xpath": best_xpath,
-                            "iterations": iteration,
-                            "history": history
-                        }
-
-                    # Update current element
-                    xpath = parent_result.get("xpath")
-                    element_info = parent_result.get("element")
-                    verification_result = await self.verify_xpath(xpath, element_info)
-                    verification_text = f"✓ Valid: {verification_result['reason']}. Interactive: {verification_result.get('isInteractive', False)}" if verification_result['valid'] else f"✗ Invalid: {verification_result['reason']}"
-
-                    print(f"Parent element: {element_info.get('tagName')} - {verification_text}")
-
-                    # Update best_xpath if this one is valid
-                    if verification_result['valid']:
-                        best_xpath = xpath
-
-                    # Send update
-                    self.send_llm_update("xpath_found", {
-                        "xpath": xpath,
-                        "element": element_info,
-                        "verification": verification_text,
-                        "screenshot": verification_result.get("screenshot")
-                    })
-
-                    history.append({
-                        "action": "try_parent",
-                        "thought": thought,
-                        "xpath": xpath,
-                        "element": element_info,
-                        "verification": verification_text,
-                        "screenshot": verification_result.get("screenshot")
-                    })
-
-                    continue
-
-                # If we get here, something unexpected happened
-                print(f"Unexpected LLM response, returning best xpath: {best_xpath}")
-                return {
-                    "success": True,
-                    "xpath": best_xpath,
-                    "iterations": iteration,
-                    "history": history,
-                    "note": "Unexpected LLM response format"
-                }
-
-            # Max iterations reached
-            print(f"Max iterations reached, returning best xpath: {best_xpath}")
-            return {
                 "success": True,
-                "xpath": best_xpath,
-                "iterations": iteration,
-                "history": history,
-                "note": "Max iterations reached"
+                "screenshot": screenshot_data,
+                "element_info": {
+                    "tagName": highlight_result.get("tagName"),
+                    "id": highlight_result.get("id"),
+                    "className": highlight_result.get("className"),
+                    "text": highlight_result.get("text")
+                },
+                "count": highlight_result.get("count", 1)
             }
 
         except Exception as e:
@@ -710,6 +268,271 @@ The screenshot shows the element highlighted in blue. Is this XPath suitable, or
             return {
                 "success": False,
                 "error": str(e),
-                "iterations": 0,
-                "history": []
+                "screenshot": None
+            }
+
+    async def verify_xpath_with_llm(self, xpath: str, query: str, screenshot: str, element_info: Dict[str, Any], count: int) -> Dict[str, Any]:
+        """Verify the XPath using Qwen LLM with screenshot"""
+        context = f"""# XPath Verification
+
+Query: "{query}"
+Generated XPath: {xpath}
+
+Element found:
+- Tag: {element_info.get('tagName', 'N/A')}
+- ID: {element_info.get('id', 'N/A')}
+- Class: {element_info.get('className', 'N/A')}
+- Text: {element_info.get('text', 'N/A')}
+- Match count: {count} element(s)
+
+The screenshot shows the element highlighted with a red border. Is this the correct element for the query "{query}"?
+
+Respond with JSON:
+```json
+{{
+  "correct": true/false,
+  "thought": "Your reasoning about whether this is the right element",
+  "feedback": "If incorrect, suggest what to look for or how to improve the XPath"
+}}
+```
+"""
+
+        print(f"\n[VERIFICATION] Using model: {self.verification_model}")
+        print(context)
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": context
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": screenshot
+                        }
+                    }
+                ]
+            }
+        ]
+
+        # Use verification client (Qwen) instead of main client
+        try:
+            response = self.verification_client.chat.completions.create(
+                model=self.verification_model,
+                messages=messages,
+                temperature=self.verification_temperature,
+                max_tokens=self.verification_max_tokens,
+                stream=False
+            )
+            response_text = response.choices[0].message.content
+
+            print(f"[VERIFICATION] Response: {response_text}")
+
+            cleaned_response = strip_json_code_blocks(response_text)
+            return json.loads(cleaned_response)
+        except json.JSONDecodeError:
+            print(f"Failed to parse verification response: {response_text}")
+            return {
+                "correct": False,
+                "thought": "Failed to parse LLM response",
+                "feedback": "Try again"
+            }
+        except Exception as e:
+            print(f"Verification error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "correct": False,
+                "thought": f"Verification failed: {str(e)}",
+                "feedback": "Try again"
+            }
+
+    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Process a message and generate XPath (sync wrapper for async method)"""
+        return asyncio.run(self._process_message_async(message))
+
+    async def _process_message_async(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Async version of process_message"""
+        try:
+            query = message.get("query")
+            if not query:
+                return {
+                    "success": False,
+                    "error": "Missing query parameter"
+                }
+
+            max_iterations = message.get("max_iterations", 3)
+            iteration = 0
+            history: List[Dict[str, Any]] = []
+
+            print(f"Query: {query}")
+
+            # Step 1: Get HTML source
+            print("Getting page HTML...")
+            html_source = await self.get_page_html()
+
+            if not html_source:
+                return {
+                    "success": False,
+                    "error": "Failed to get page HTML"
+                }
+
+            print(f"HTML source length: {len(html_source)} characters")
+
+            # Iteration loop: generate xpath, verify, repeat if needed
+            while iteration < max_iterations:
+                iteration += 1
+                print(f"\n=== Iteration {iteration} ===")
+
+                # Step 2: Generate XPath using Claude LLM
+                print(f"[GENERATION] Generating XPath using model: {self.model}")
+
+                context = f"""# Query
+{query}
+
+# HTML Source (cleaned)
+```html
+{html_source[:50000]}
+```
+
+Generate an XPath expression for the query.
+"""
+
+                # Add feedback from previous iteration if available
+                if history:
+                    last_entry = history[-1]
+                    if not last_entry.get("verification", {}).get("correct"):
+                        feedback = last_entry.get("verification", {}).get("feedback", "")
+                        context += f"\n# Feedback from previous attempt\n{feedback}\n"
+
+                messages = [
+                    {
+                        "role": "user",
+                        "content": context
+                    }
+                ]
+
+                # Use main client (Claude) for generation
+                response = self.call_llm(
+                    messages=messages,
+                    system=self.get_system_prompt()
+                )
+
+                # Parse response
+                try:
+                    cleaned_response = strip_json_code_blocks(response)
+                    xpath_data = json.loads(cleaned_response)
+                except json.JSONDecodeError:
+                    print(f"Failed to parse XPath generation response: {response}")
+                    return {
+                        "success": False,
+                        "error": "Failed to parse LLM response",
+                        "iterations": iteration,
+                        "history": history
+                    }
+
+                xpath = xpath_data.get("xpath")
+                thought = xpath_data.get("thought", "")
+                confidence = xpath_data.get("confidence", "unknown")
+
+                print(f"Generated XPath: {xpath}")
+                print(f"Thought: {thought}")
+                print(f"Confidence: {confidence}")
+
+                # Step 3: Highlight and screenshot
+                print("Highlighting element and taking screenshot...")
+                highlight_result = await self.highlight_and_screenshot(xpath)
+
+                if not highlight_result.get("success"):
+                    error = highlight_result.get("error", "Unknown error")
+                    print(f"Failed to highlight: {error}")
+
+                    history.append({
+                        "iteration": iteration,
+                        "xpath": xpath,
+                        "thought": thought,
+                        "confidence": confidence,
+                        "highlight_success": False,
+                        "error": error
+                    })
+
+                    # Continue to next iteration
+                    continue
+
+                element_info = highlight_result.get("element_info", {})
+                count = highlight_result.get("count", 0)
+                screenshot = highlight_result.get("screenshot")
+
+                print(f"Element highlighted: {element_info.get('tagName')} (matches: {count})")
+
+                # Step 4: Verify with LLM
+                print("Verifying with LLM...")
+                verification = await self.verify_xpath_with_llm(
+                    xpath=xpath,
+                    query=query,
+                    screenshot=screenshot,
+                    element_info=element_info,
+                    count=count
+                )
+
+                is_correct = verification.get("correct", False)
+                verification_thought = verification.get("thought", "")
+                feedback = verification.get("feedback", "")
+
+                print(f"Verification: {'✓ Correct' if is_correct else '✗ Incorrect'}")
+                print(f"Thought: {verification_thought}")
+
+                history.append({
+                    "iteration": iteration,
+                    "xpath": xpath,
+                    "thought": thought,
+                    "confidence": confidence,
+                    "highlight_success": True,
+                    "element_info": element_info,
+                    "count": count,
+                    "screenshot": screenshot,
+                    "verification": verification
+                })
+
+                # If correct, return success
+                if is_correct:
+                    print(f"\n✓ Successfully found XPath: {xpath}")
+                    return {
+                        "success": True,
+                        "xpath": xpath,
+                        "iterations": iteration
+                    }
+
+                # If not correct, continue to next iteration with feedback
+                print(f"Feedback: {feedback}")
+
+            # Max iterations reached
+            print(f"\nMax iterations ({max_iterations}) reached")
+
+            # Return the last generated xpath even if not verified
+            if history:
+                last_entry = history[-1]
+                return {
+                    "success": False,
+                    "error": "Max iterations reached without verification",
+                    "xpath": last_entry.get("xpath"),
+                    "iterations": iteration
+                }
+
+            return {
+                "success": False,
+                "error": "No XPath generated",
+                "iterations": iteration
+            }
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": str(e),
+                "iterations": 0
             }

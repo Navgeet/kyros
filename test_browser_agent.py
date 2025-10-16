@@ -7,7 +7,7 @@ from agents.browser_boss_agent import BrowserBossAgent
 import config
 
 
-def main():
+async def main():
     # Load config
     config_dict = config.load_config()
 
@@ -20,10 +20,7 @@ def main():
         Please do the following:
         1. Launch a browser
         2. Navigate to https://testsheepnz.github.io/BasicCalculator.html
-        3. Find the input field for the first number and enter "5"
-        4. Find the input field for the second number and enter "3"
-        5. Find and click the "Add" button
-        6. Exit with success
+        3. Find the xpath for calculate button
         """,
         "max_iterations": 30
     }
@@ -31,7 +28,7 @@ def main():
     print("Starting BrowserAgent test...")
     print("=" * 80)
 
-    result = agent.process_message(message)
+    result = await agent.process_message(message)
 
     print("\n" + "=" * 80)
     print("Test completed!")
@@ -52,4 +49,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

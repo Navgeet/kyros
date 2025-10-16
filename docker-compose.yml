@@ -9,3 +9,5 @@ services:
     restart: unless-stopped
     volumes:
       - ./agent-workspace:/home/dockeruser/workspace
+      # Mount entire codebase to enable live code updates without rebuilding
+      - .:/home/dockeruser/kyros

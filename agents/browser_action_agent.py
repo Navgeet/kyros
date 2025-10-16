@@ -56,7 +56,6 @@ Your job is to execute the given task by performing step-by-step actions.
 - get_value(xpath): Get value of an input element
 - wait_for_element(xpath, timeout): Wait for an element to appear (timeout in milliseconds, default 5000)
 - scroll_into_view(xpath): Scroll an element into view
-- screenshot(): Take a screenshot of the current page
 - close(): Close the current browser
 - wait(seconds): Wait for specified seconds
 - exit(message, exitCode): Exit the agent when finished
@@ -709,7 +708,8 @@ When the task is complete, respond with:
 
                     # Check if exit action
                     if exec_result.get("exit", False):
-                        await self._close()
+                        # Don't close browser - keep it open for subsequent tasks
+                        # Browser will be kept alive across multiple delegations from BrowserBossAgent
                         return {
                             "success": True,
                             "result": exec_result.get("message", "Task completed"),
@@ -728,8 +728,7 @@ When the task is complete, respond with:
                         "history": self.history
                     }
 
-            await self._close()
-
+            # Don't close browser on max iterations - keep it open for subsequent tasks
             return {
                 "success": False,
                 "error": "Max iterations reached",
@@ -742,11 +741,7 @@ When the task is complete, respond with:
             import traceback
             traceback.print_exc()
 
-            try:
-                await self._close()
-            except:
-                pass
-
+            # Don't close browser on error - keep it open for subsequent tasks
             return {
                 "success": False,
                 "error": str(e),

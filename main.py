@@ -148,9 +148,16 @@ class MultiAgentOrchestrator:
                             })
 
                             # Process message with subagent
-                            subagent_response = agent.process_message({
-                                "content": agent_message
-                            })
+                            # Check if process_message is async (for BrowserBossAgent, etc.)
+                            import inspect
+                            if inspect.iscoroutinefunction(agent.process_message):
+                                subagent_response = await agent.process_message({
+                                    "content": agent_message
+                                })
+                            else:
+                                subagent_response = agent.process_message({
+                                    "content": agent_message
+                                })
 
                             # Add subagent response to message for next iteration
                             if "agent_responses" not in message:

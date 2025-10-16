@@ -6,6 +6,16 @@ export USER=dockeruser
 export HOME=/home/dockeruser
 export DISPLAY=:1
 
+# Install/sync Python dependencies (code is mounted via volume)
+echo "Installing Python dependencies..."
+cd /home/dockeruser/kyros
+uv sync
+cd /home/dockeruser
+
+# Create .Xauthority file if it doesn't exist
+touch /home/dockeruser/.Xauthority
+chmod 600 /home/dockeruser/.Xauthority
+
 # Clean up any stale X lock files
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
 
@@ -38,17 +48,16 @@ x11vnc -display :1 \
     -rfbport 5901 \
     -shared \
     -forever \
+    -nopw \
     -cursor arrow \
     -cursorpos \
     -cursor_drag \
     -arrow 20 \
-    -rfbauth ~/.vnc/passwd \
+    -nocursorshape \
     -noxdamage \
     -noxfixes \
     -noxrecord \
-    -noxinerama \
-    -nocursorshape \
-    -verbose &
+    -noxinerama &
 
 X11VNC_PID=$!
 
