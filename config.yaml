@@ -37,18 +37,18 @@ agents:
     max_tokens: 1000
 
   gui:
-    # model: "qwen/qwen3-vl-235b-a22b-thinking"
-    # api_provider: "novita"
-    model: "internvl3.5-241b-a28b"
-    api_provider: "internlm"
+    model: "qwen/qwen3-vl-235b-a22b-thinking"
+    api_provider: "novita"
+    # model: "internvl3.5-241b-a28b"
+    # api_provider: "internlm"
     temperature: 0.6
     max_tokens: 30000
     # Action generation settings (uses Hugging Face)
     action_generation:
-      model: "internvl3.5-241b-a28b"
-      api_provider: "internlm"
-      # model: "qwen/qwen3-vl-235b-a22b-thinking"
-      # api_provider: "novita"
+      # model: "internvl3.5-241b-a28b"
+      # api_provider: "internlm"
+      model: "qwen/qwen3-vl-235b-a22b-thinking"
+      api_provider: "novita"
       temperature: 0.6
       max_tokens: 30000
 

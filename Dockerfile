@@ -3,7 +3,8 @@ FROM ubuntu:plucky
 # Install desktop environment, VNC server, and agent dependencies
 RUN apt-get update && apt-get install -y \
     xfce4 xfce4-goodies \
-    tightvncserver \
+    x11vnc \
+    xvfb \
     dbus-x11 \
     firefox \
     python3 python3-pip python3-venv \
@@ -11,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     scrot \
     curl \
     git \
+    xcursor-themes \
+    adwaita-icon-theme \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome and wget

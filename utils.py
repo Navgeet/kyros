@@ -201,6 +201,12 @@ def save_screenshot(screenshot_data: str, prefix: str = "screenshot") -> str:
 
     # Decode and save
     try:
+        # Fix base64 padding if needed
+        # Base64 strings should be a multiple of 4 characters
+        missing_padding = len(screenshot_data) % 4
+        if missing_padding:
+            screenshot_data += '=' * (4 - missing_padding)
+
         image_bytes = base64.b64decode(screenshot_data)
         with open(filepath, "wb") as f:
             f.write(image_bytes)

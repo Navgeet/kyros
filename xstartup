@@ -2,4 +2,23 @@
 unset SESSION_MANAGER
 export DBUS_SESSION_BUS_ADDRESS=""
 eval $(dbus-launch --sh-syntax)
+
+# Set cursor theme and make cursor visible
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=24
+
+# Enable software cursor rendering - forces X to draw cursor in framebuffer
+# This ensures VNC can see the cursor even without a physical mouse
+xsetroot -cursor_name left_ptr -solid grey
+
+# Start a background process to continuously update cursor position
+# This simulates mouse activity so VNC knows to render the cursor
+(
+  while true; do
+    # Move cursor slightly to keep it "active" (moves by 0 pixels, just updates state)
+    xdotool mousemove_relative --sync -- 0 0
+    sleep 5
+  done
+) &
+
 startxfce4 &

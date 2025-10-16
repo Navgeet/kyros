@@ -112,7 +112,18 @@ When the task is complete, respond with:
                 self.browser = await self.playwright.firefox.launch(headless=False)
             else:
                 name = "chromium"
-                self.browser = await self.playwright.chromium.launch(headless=False)
+                # Add Chrome args to fix SIGTRAP in Docker
+                self.browser = await self.playwright.chromium.launch(
+                    headless=False,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-software-rasterizer',
+                        '--disable-extensions'
+                    ]
+                )
 
             self.context = await self.browser.new_context(no_viewport=True)
             self.page = await self.context.new_page()

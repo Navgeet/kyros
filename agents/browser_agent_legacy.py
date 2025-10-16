@@ -140,7 +140,18 @@ When the task is complete, respond with:
             else:
                 # Default to chromium for any other value
                 name = "chromium"
-                self.browser = await self.playwright.chromium.launch(headless=False)
+                # Add Chrome args to fix SIGTRAP in Docker
+                self.browser = await self.playwright.chromium.launch(
+                    headless=False,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--disable-software-rasterizer',
+                        '--disable-extensions'
+                    ]
+                )
 
             # Create context without fixed viewport (will use actual window size)
             self.contexts[name] = await self.browser.new_context(no_viewport=True)
