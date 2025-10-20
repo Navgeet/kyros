@@ -271,6 +271,22 @@ Query: "find xpath for login button"
                 "screenshot": None
             }
 
+    async def remove_highlight(self):
+        """Remove highlight from the page"""
+        try:
+            if not self.page:
+                return
+
+            remove_script = """
+            () => {
+                const existingBoxes = document.querySelectorAll('.xpath-highlight-box');
+                existingBoxes.forEach(box => box.remove());
+            }
+            """
+            await self.page.evaluate(remove_script)
+        except Exception as e:
+            print(f"Failed to remove highlight: {e}")
+
     async def verify_xpath_with_llm(self, xpath: str, query: str, screenshot: str, element_info: Dict[str, Any], count: int) -> Dict[str, Any]:
         """Verify the XPath using Qwen LLM with screenshot"""
         context = f"""# XPath Verification
@@ -477,6 +493,9 @@ Generate an XPath expression for the query.
                     element_info=element_info,
                     count=count
                 )
+
+                # Remove highlight after verification
+                await self.remove_highlight()
 
                 is_correct = verification.get("correct", False)
                 verification_thought = verification.get("thought", "")
