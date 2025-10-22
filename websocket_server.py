@@ -18,6 +18,8 @@ class WebSocketServer:
         # Message buffer for polling (stores last 1000 messages)
         self.message_buffer: deque = deque(maxlen=1000)
         self.message_id_counter = 0
+        # Event listeners for local terminal UI
+        self.event_listeners: List = []
         self.setup_routes()
 
     def setup_routes(self):
@@ -31,6 +33,10 @@ class WebSocketServer:
     def set_task_handler(self, handler):
         """Set custom task handler function"""
         self.task_handler_func = handler
+
+    def add_event_listener(self, listener_func):
+        """Add an event listener that will be called for each broadcast"""
+        self.event_listeners.append(listener_func)
 
     @web.middleware
     async def cors_middleware(self, request, handler):
@@ -144,6 +150,15 @@ class WebSocketServer:
             'message': message
         }
         self.message_buffer.append(message_with_id)
+
+        # Call event listeners (for terminal UI)
+        for listener in self.event_listeners:
+            try:
+                listener(message)
+            except Exception as e:
+                print(f"ERROR: Event listener failed: {e}")
+                import traceback
+                traceback.print_exc()
 
         if not self.clients:
             return

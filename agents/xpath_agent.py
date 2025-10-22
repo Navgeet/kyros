@@ -145,16 +145,20 @@ Query: "find xpath for login button"
 
     async def get_page_html(self) -> str:
         """Get the HTML source of the current page"""
-        print(f"[DEBUG] get_page_html called, self.page = {self.page}")
+        print(f"[DEBUG] get_page_html called")
+        print(f"[DEBUG] self.page = {self.page}")
+        print(f"[DEBUG] self.browser_action_agent = {self.browser_action_agent}")
 
         # Get page from browser_action_agent if not set
         if not self.page and self.browser_action_agent:
             print("[DEBUG] Getting page from browser_action_agent")
             self.page = self.browser_action_agent.get_page()
+            print(f"[DEBUG] Got page from browser_action_agent: {self.page}")
 
         if not self.page:
-            print("[DEBUG] No page available, returning empty string")
-            return ""
+            error_msg = "No browser page available. Make sure a browser is launched first (use BrowserActionAgent to launch a browser)."
+            print(f"[DEBUG] {error_msg}")
+            raise ValueError(error_msg)
 
         print(f"[DEBUG] About to call page.content()")
         html = await self.page.content()

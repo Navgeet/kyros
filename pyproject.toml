@@ -14,4 +14,5 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyautogui>=0.9.54",
     "playwright>=1.48.0",
+    "colorama>=0.4.6",
 ]

@@ -16,6 +16,7 @@ A computer-use agent powered by InternLM API and InternVL3.5-241B-A28B model, ru
 - xdotool (for mouse/keyboard control)
 - wmctrl (for window management)
 - X11 display server
+- scrot
 
 ### Install system dependencies (Ubuntu/Debian):
 
@@ -38,6 +39,9 @@ uv sync
 cp .env.example .env
 # Edit .env with your InternLM API key
 ```
+
+4. Install playwright dependencies
+
 
 ## Usage
 

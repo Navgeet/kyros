@@ -29,44 +29,23 @@ novita:
 # Agent-specific configurations
 agents:
   boss:
-    model: "claude-sonnet-4-5"
+    # model: "claude-sonnet-4-5"
+    model: "claude-haiku-4-5"
     api_provider: "anthropic"
-    # model: "qwen/qwen3-vl-235b-a22b-thinking"
-    # api_provider: "novita"
-    # model: "internvl3.5-241b-a28b"
-    # api_provider: "internlm"
     temperature: 0.5
     max_tokens: 1000
 
   gui:
     model: "qwen/qwen3-vl-235b-a22b-thinking"
     api_provider: "novita"
-    # model: "internvl3.5-241b-a28b"
-    # api_provider: "internlm"
     temperature: 0.6
     max_tokens: 30000
     # Action generation settings (uses Hugging Face)
     action_generation:
-      # model: "internvl3.5-241b-a28b"
-      # api_provider: "internlm"
       model: "qwen/qwen3-vl-235b-a22b-thinking"
       api_provider: "novita"
       temperature: 0.6
       max_tokens: 30000
-
-#  gui:
-#    model: "claude-sonnet-4-5"
-#    api_provider: "anthropic"
-#    temperature: 0.7
-#    max_tokens: 1000
-#    # Action generation settings (uses Hugging Face)
-#    action_generation:
-#      model: "claude-sonnet-4-5"
-#      api_provider: "anthropic"
-#      temperature: 0.7
-#      max_tokens: 1000
-
-
 
   shell:
     model: "claude-sonnet-4-5"
@@ -81,23 +60,22 @@ agents:
     max_tokens: 2000
 
   browser:
-    model: "claude-sonnet-4-5"
+    model: "claude-haiku-4-5"
+    # model: "claude-sonnet-4-5"
     api_provider: "anthropic"
     temperature: 0.3
     max_tokens: 1000
 
   browser_boss:
-    # model: "qwen/qwen3-vl-235b-a22b-thinking"
-    # api_provider: "novita"
-    # model: "internvl3.5-241b-a28b"
-    # api_provider: "internlm"
-    model: "claude-sonnet-4-5"
+    model: "claude-haiku-4-5"
+    # model: "claude-sonnet-4-5"
     api_provider: "anthropic"
     temperature: 0.6
     max_tokens: 1000
 
   xpath:
-    model: "claude-sonnet-4-5"
+    # model: "claude-sonnet-4-5"
+    model: "claude-haiku-4-5"
     api_provider: "anthropic"
     temperature: 0.3
     max_tokens: 1000
@@ -105,7 +83,7 @@ agents:
 
 # Context compaction settings (used by all agents)
 compaction:
-  model: "claude-sonnet-4-5"
+  model: "claude-haiku-4-5"
   api_provider: "anthropic"
   max_tokens: 1000
   trigger:
