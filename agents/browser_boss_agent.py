@@ -133,8 +133,9 @@ Finishing up:
 ## Important Rules
 
 - CRITICAL: Respond with ONLY valid JSON. Do NOT include any text before or after the JSON
-- Prefer using XPath for speed: get XPath (XPath) → perform action (Browser)
-- Fallback to GUIAgent if XPath not available
+- Always analyze the screenshot first
+- Prefer using XPathAgent over GUIAgent whenever possible: get XPath (XPath) → perform action (Browser)
+- Fallback to GUIAgent if XPath not available/working
 - When delegating: provide clear, specific instructions
 - Use "exit" action type when the task is complete
 
@@ -271,6 +272,17 @@ Your response must be ONLY a JSON object with no additional text:
                     try:
                         # Get or create the subagent
                         agent = self.get_or_create_agent(agent_type)
+
+                        # Send delegation event
+                        if self.websocket_callback:
+                            self.websocket_callback({
+                                "type": "delegation",
+                                "data": {
+                                    "from_agent": "BrowserBoss",
+                                    "agent_type": agent_type,
+                                    "message": agent_message
+                                }
+                            })
 
                         # XPathAgent expects "query" parameter instead of "content"
                         if agent_type == "XPathAgent":

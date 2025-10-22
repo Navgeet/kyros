@@ -121,7 +121,6 @@ Query: "find xpath for login button"
 
     def clean_html(self, html: str) -> str:
         """Clean HTML by removing head, script, and style tags"""
-        print(f"[DEBUG] clean_html called, input length: {len(html)}")
         # Remove head tag and its contents
         html = re.sub(r'<head\b[^>]*>.*?</head>', '', html, flags=re.DOTALL | re.IGNORECASE)
 
@@ -133,9 +132,6 @@ Query: "find xpath for login button"
 
         # Remove comments
         html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL).strip()
-        print(f"[DEBUG] clean_html done, output length: {len(html)}")
-        # Comment out the print of full HTML as it's very verbose
-        # print(html)
 
         return html
 
@@ -145,20 +141,15 @@ Query: "find xpath for login button"
 
     async def get_page_html(self) -> str:
         """Get the HTML source of the current page"""
-        print(f"[DEBUG] get_page_html called, self.page = {self.page}")
-
         # Get page from browser_action_agent if not set
         if not self.page and self.browser_action_agent:
-            print("[DEBUG] Getting page from browser_action_agent")
             self.page = self.browser_action_agent.get_page()
 
         if not self.page:
-            print("[DEBUG] No page available, returning empty string")
-            return ""
+            error_msg = "No browser page available. Make sure a browser is launched first (use BrowserActionAgent to launch a browser)."
+            raise ValueError(error_msg)
 
-        print(f"[DEBUG] About to call page.content()")
         html = await self.page.content()
-        print(f"[DEBUG] Got HTML content, length: {len(html)}")
         return self.clean_html(html)
 
     async def highlight_and_screenshot(self, xpath: str) -> Dict[str, Any]:
@@ -285,7 +276,7 @@ Query: "find xpath for login button"
             """
             await self.page.evaluate(remove_script)
         except Exception as e:
-            print(f"Failed to remove highlight: {e}")
+            pass  # Silently ignore highlight removal failures
 
     async def verify_xpath_with_llm(self, xpath: str, query: str, screenshot: str, element_info: Dict[str, Any], count: int) -> Dict[str, Any]:
         """Verify the XPath using Qwen LLM with screenshot"""
@@ -312,9 +303,6 @@ Respond with JSON:
 }}
 ```
 """
-
-        print(f"\n[VERIFICATION] Using model: {self.verification_model}")
-        print(context)
 
         messages = [
             {
@@ -345,21 +333,15 @@ Respond with JSON:
             )
             response_text = response.choices[0].message.content
 
-            print(f"[VERIFICATION] Response: {response_text}")
-
             cleaned_response = strip_json_code_blocks(response_text)
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
-            print(f"Failed to parse verification response: {response_text}")
             return {
                 "correct": False,
                 "thought": "Failed to parse LLM response",
                 "feedback": "Try again"
             }
         except Exception as e:
-            print(f"Verification error: {e}")
-            import traceback
-            traceback.print_exc()
             return {
                 "correct": False,
                 "thought": f"Verification failed: {str(e)}",
@@ -380,14 +362,12 @@ Respond with JSON:
                     "error": "Missing query parameter"
                 }
 
+
             max_iterations = message.get("max_iterations", 3)
             iteration = 0
             history: List[Dict[str, Any]] = []
 
-            print(f"Query: {query}")
-
             # Step 1: Get HTML source
-            print("Getting page HTML...")
             html_source = await self.get_page_html()
 
             if not html_source:
@@ -396,15 +376,11 @@ Respond with JSON:
                     "error": "Failed to get page HTML"
                 }
 
-            print(f"HTML source length: {len(html_source)} characters")
-
             # Iteration loop: generate xpath, verify, repeat if needed
             while iteration < max_iterations:
                 iteration += 1
-                print(f"\n=== Iteration {iteration} ===")
 
                 # Step 2: Generate XPath using Claude LLM
-                print(f"[GENERATION] Generating XPath using model: {self.model}")
 
                 context = f"""# Query
 {query}
@@ -442,7 +418,6 @@ Generate an XPath expression for the query.
                     cleaned_response = strip_json_code_blocks(response)
                     xpath_data = json.loads(cleaned_response)
                 except json.JSONDecodeError:
-                    print(f"Failed to parse XPath generation response: {response}")
                     return {
                         "success": False,
                         "error": "Failed to parse LLM response",
@@ -454,17 +429,11 @@ Generate an XPath expression for the query.
                 thought = xpath_data.get("thought", "")
                 confidence = xpath_data.get("confidence", "unknown")
 
-                print(f"Generated XPath: {xpath}")
-                print(f"Thought: {thought}")
-                print(f"Confidence: {confidence}")
-
                 # Step 3: Highlight and screenshot
-                print("Highlighting element and taking screenshot...")
                 highlight_result = await self.highlight_and_screenshot(xpath)
 
                 if not highlight_result.get("success"):
                     error = highlight_result.get("error", "Unknown error")
-                    print(f"Failed to highlight: {error}")
 
                     history.append({
                         "iteration": iteration,
@@ -482,10 +451,13 @@ Generate an XPath expression for the query.
                 count = highlight_result.get("count", 0)
                 screenshot = highlight_result.get("screenshot")
 
-                print(f"Element highlighted: {element_info.get('tagName')} (matches: {count})")
-
                 # Step 4: Verify with LLM
-                print("Verifying with LLM...")
+                # Send verification start event
+                self.send_llm_update("verification_start", {
+                    "xpath": xpath,
+                    "iteration": iteration
+                })
+
                 verification = await self.verify_xpath_with_llm(
                     xpath=xpath,
                     query=query,
@@ -501,8 +473,13 @@ Generate an XPath expression for the query.
                 verification_thought = verification.get("thought", "")
                 feedback = verification.get("feedback", "")
 
-                print(f"Verification: {'✓ Correct' if is_correct else '✗ Incorrect'}")
-                print(f"Thought: {verification_thought}")
+                # Send verification end event
+                self.send_llm_update("verification_end", {
+                    "xpath": xpath,
+                    "correct": is_correct,
+                    "success": is_correct,
+                    "iteration": iteration
+                })
 
                 history.append({
                     "iteration": iteration,
@@ -518,7 +495,6 @@ Generate an XPath expression for the query.
 
                 # If correct, return success
                 if is_correct:
-                    print(f"\n✓ Successfully found XPath: {xpath}")
                     return {
                         "success": True,
                         "xpath": xpath,
@@ -526,10 +502,8 @@ Generate an XPath expression for the query.
                     }
 
                 # If not correct, continue to next iteration with feedback
-                print(f"Feedback: {feedback}")
 
             # Max iterations reached
-            print(f"\nMax iterations ({max_iterations}) reached")
 
             # Return the last generated xpath even if not verified
             if history:

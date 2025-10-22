@@ -1,56 +1,98 @@
-import sys
-import argparse
+"""
+Terminal Agent - Standalone CLI interface without WebSocket dependency
+"""
+
 import asyncio
-from typing import Dict, Any
+import sys
+import os
+from typing import Dict, Any, Optional, List
 from agents.boss_agent import BossAgent
-from websocket_server import WebSocketServer
 from terminal_ui import terminal_ui
 import config
+import readline
+import atexit
+import json
 import time
 
 
-class MultiAgentOrchestrator:
-    """Main orchestrator for the multi-agent system"""
+class TerminalAgent:
+    """Standalone terminal agent for CLI interaction"""
 
-    def __init__(self, websocket_server: WebSocketServer, use_terminal_ui: bool = False):
-        self.websocket_server = websocket_server
-        self.boss_agent = None
+    def __init__(self):
+        self.boss_agent: Optional[BossAgent] = None
         self.config = None
-        self.use_terminal_ui = use_terminal_ui
+        self.history_file = os.path.expanduser("~/.kyros_history")
+        self.max_history = 1000
+        self._setup_history()
+        self._setup_readline()
 
-        # Set up event listener for terminal UI
-        if use_terminal_ui:
-            websocket_server.add_event_listener(self._handle_terminal_event)
+    def _setup_history(self):
+        """Setup command history"""
+        # Load history from file
+        if os.path.exists(self.history_file):
+            try:
+                readline.read_history_file(self.history_file)
+            except Exception as e:
+                print(f"Warning: Could not load history: {e}")
 
-    def _handle_terminal_event(self, event: Dict[str, Any]):
-        """Handle WebSocket events for terminal UI display"""
-        if self.use_terminal_ui:
-            terminal_ui.handle_event(event)
+        # Limit history size
+        readline.set_history_length(self.max_history)
+
+        # Save history on exit
+        atexit.register(self._save_history)
+
+    def _save_history(self):
+        """Save command history to file"""
+        try:
+            readline.write_history_file(self.history_file)
+        except Exception as e:
+            print(f"Warning: Could not save history: {e}")
+
+    def _setup_readline(self):
+        """Setup readline for better prompt experience"""
+        # Enable tab completion
+        readline.parse_and_bind("tab: complete")
+
+        # Enable Ctrl+R for reverse search
+        readline.parse_and_bind("\\C-r: reverse-search-history")
+
+        # Enable Ctrl+S for forward search
+        readline.parse_and_bind("\\C-s: forward-search-history")
 
     async def initialize(self):
-        """Initialize the orchestrator and boss agent"""
+        """Initialize the terminal agent and boss agent"""
         # Load configuration
         try:
             self.config = config.load_config()
-            # print("Configuration loaded successfully")
+            # terminal_ui.show_info("Configuration loaded successfully")
         except Exception as e:
-            print(f"Warning: Failed to load config.yaml, using environment variables: {e}")
+            terminal_ui.show_info(f"Using environment variables (config.yaml not found)")
             self.config = None
 
-        # Create websocket callback
-        ws_callback = self.websocket_server.create_websocket_callback()
+        # Create a callback that sends events to terminal UI
+        def terminal_callback(message: Dict[str, Any]):
+            """Callback for agent events"""
+            terminal_ui.handle_event(message)
 
-        # Create boss agent
+        # Create boss agent without WebSocket
         self.boss_agent = BossAgent(
-            websocket_callback=ws_callback,
+            websocket_callback=terminal_callback,
             config_dict=self.config
         )
 
     async def process_task(self, task: str) -> Dict[str, Any]:
-        """Process a task using the boss agent"""
+        """Process a single task"""
         try:
+            time.sleep(3)
+
             if not self.boss_agent:
                 await self.initialize()
+
+            # Send task event
+            terminal_ui.handle_event({
+                'type': 'task_submitted',
+                'task': task
+            })
 
             # Send task to boss agent
             message = {
@@ -73,9 +115,14 @@ class MultiAgentOrchestrator:
 
                     if action_type == "exit":
                         # Task complete
+                        result = action.get("message", "Task completed")
+                        terminal_ui.handle_event({
+                            'type': 'task_completed',
+                            'result': result
+                        })
                         return {
                             "success": True,
-                            "result": action.get("message", "Task completed"),
+                            "result": result,
                             "iterations": iteration
                         }
 
@@ -85,9 +132,9 @@ class MultiAgentOrchestrator:
                         wait_for_response = action.get("wait_for_response", True)
 
                         # Broadcast to UI
-                        await self.websocket_server.broadcast({
-                            "type": "user_prompt",
-                            "data": {
+                        terminal_ui.handle_event({
+                            'type': 'user_prompt',
+                            'data': {
                                 "message": user_message,
                                 "thought": response.get("thought", ""),
                                 "wait_for_response": wait_for_response
@@ -96,15 +143,7 @@ class MultiAgentOrchestrator:
 
                         if wait_for_response:
                             # Prompt user in terminal
-                            if self.use_terminal_ui:
-                                user_response = terminal_ui.prompt_user(user_message)
-                            else:
-                                print(f"\n{'='*60}")
-                                print(f"BOSS AGENT: {user_message}")
-                                print(f"{'='*60}")
-                                user_response = input("Your response: ").strip()
-
-                            time.sleep(5)
+                            user_response = terminal_ui.prompt_user(user_message)
 
                             # Add user response to message for next iteration
                             if not user_response:
@@ -124,18 +163,18 @@ class MultiAgentOrchestrator:
                             })
 
                             # Broadcast user response
-                            await self.websocket_server.broadcast({
-                                "type": "user_response",
-                                "data": {
+                            terminal_ui.handle_event({
+                                'type': 'user_response',
+                                'data': {
                                     "message": user_response
                                 }
                             })
 
                     elif action_type == "respond":
                         # Boss is responding to user
-                        await self.websocket_server.broadcast({
-                            "type": "boss_response",
-                            "data": {
+                        terminal_ui.handle_event({
+                            'type': 'boss_response',
+                            'data': {
                                 "message": action.get("message", ""),
                                 "thought": response.get("thought", "")
                             }
@@ -147,14 +186,13 @@ class MultiAgentOrchestrator:
                         agent_message = action.get("message", "")
 
                         try:
-                            # Get or create the subagent (single instance per type)
+                            # Get or create the subagent
                             agent = self.boss_agent.get_or_create_agent(agent_type)
 
                             # Send delegation broadcast
-                            await self.websocket_server.broadcast({
-                                "type": "delegation",
-                                "data": {
-                                    "from_agent": "Boss",
+                            terminal_ui.handle_event({
+                                'type': 'delegation',
+                                'data': {
                                     "agent_type": agent_type,
                                     "agent_id": agent.agent_id,
                                     "message": agent_message,
@@ -163,7 +201,6 @@ class MultiAgentOrchestrator:
                             })
 
                             # Process message with subagent
-                            # Check if process_message is async (for BrowserBossAgent, etc.)
                             import inspect
                             if inspect.iscoroutinefunction(agent.process_message):
                                 subagent_response = await agent.process_message({
@@ -180,12 +217,11 @@ class MultiAgentOrchestrator:
 
                             message["agent_responses"].append({
                                 "agent_type": agent_type,
-                                # "agent_id": agent.agent_id,
                                 "response": subagent_response
                             })
 
                         except Exception as e:
-                            print(f"ERROR: Failed to delegate to {agent_type}: {e}")
+                            terminal_ui.show_error(f"Failed to delegate to {agent_type}: {e}")
                             import traceback
                             traceback.print_exc()
                             # Continue to next iteration with error info
@@ -201,7 +237,7 @@ class MultiAgentOrchestrator:
                             })
 
                 except Exception as e:
-                    print(f"ERROR: Failed to process iteration {iteration}: {e}")
+                    terminal_ui.show_error(f"Failed to process iteration {iteration}: {e}")
                     import traceback
                     traceback.print_exc()
                     return {
@@ -210,6 +246,7 @@ class MultiAgentOrchestrator:
                         "iterations": iteration
                     }
 
+            terminal_ui.show_error("Max iterations reached")
             return {
                 "success": False,
                 "error": "Max iterations reached",
@@ -217,7 +254,7 @@ class MultiAgentOrchestrator:
             }
 
         except Exception as e:
-            print(f"ERROR: Failed to process task: {e}")
+            terminal_ui.show_error(f"Failed to process task: {e}")
             import traceback
             traceback.print_exc()
             return {
@@ -226,101 +263,89 @@ class MultiAgentOrchestrator:
                 "iterations": 0
             }
 
+    async def run_interactive(self):
+        """Run in interactive prompt mode"""
+        terminal_ui.print_banner()
 
-async def main():
-    parser = argparse.ArgumentParser(description="Multi-Agent Computer-Use System")
-    parser.add_argument("--server", action="store_true", help="Run in WebSocket server mode for web frontend")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="WebSocket server host (server mode only)")
-    parser.add_argument("--port", type=int, default=8765, help="WebSocket server port (server mode only)")
-    parser.add_argument("--task", type=str, default=None, help="Execute a single task and exit")
-    parser.add_argument("--no-ui", action="store_true", help="Disable terminal UI formatting")
+        # Show help message
+        print("Welcome to Kyros! Type your task and press Enter.")
+        print("Commands:")
+        print("  /help    - Show this help message")
+        print("  /clear   - Clear the screen")
+        print("  /history - Show command history")
+        print("  /exit    - Exit the program")
+        print("  Ctrl+R   - Search command history")
+        print()
 
-    args = parser.parse_args()
+        await self.initialize()
 
-    # If --server flag is provided, run in WebSocket server mode
-    if args.server:
-        # Create WebSocket server
-        ws_server = WebSocketServer(host=args.host, port=args.port)
-
-        # Create orchestrator
-        orchestrator = MultiAgentOrchestrator(ws_server, use_terminal_ui=False)
-
-        # Start WebSocket server
-        await ws_server.start()
-
-        print(f"WebSocket server started on ws://{args.host}:{args.port}")
-        print(f"WebSocket server: ws://{args.host}:{args.port}")
-        print(f"Open the frontend to submit tasks")
-
-        # Set up the task handler to use our orchestrator
-        from aiohttp import web
-
-        async def task_handler(request):
+        while True:
             try:
-                time.sleep(2)
+                # Get user input with prompt
+                from colorama import Fore, Style
+                user_input = input(Fore.GREEN + Style.BRIGHT + "kyros> " + Style.RESET_ALL).strip()
 
-                data = await request.json()
-                task = data.get('task')
+                if not user_input:
+                    continue
 
-                if not task:
-                    return web.json_response({'error': 'No task provided'}, status=400)
+                # Handle special commands
+                if user_input.startswith('/'):
+                    await self._handle_command(user_input)
+                    continue
 
-                # Broadcast task submission
-                await ws_server.broadcast({
-                    'type': 'task_submitted',
-                    'data': {'task': task}
-                })
+                # Process as a task
+                print()  # Add newline before task output
+                await self.process_task(user_input)
+                print()  # Add newline after task output
 
-                # Process task with orchestrator
-                result = await orchestrator.process_task(task)
-
-                # Broadcast completion
-                await ws_server.broadcast({
-                    'type': 'task_completed',
-                    'data': result
-                })
-
-                return web.json_response({
-                    'success': True,
-                    'result': result
-                })
-
+            except KeyboardInterrupt:
+                print("\n\nUse /exit to quit or Ctrl+D")
+                continue
+            except EOFError:
+                print("\n\nGoodbye!")
+                sys.exit(0)
             except Exception as e:
-                print(f"ERROR: Task handler failed: {e}")
+                terminal_ui.show_error(f"Unexpected error: {e}")
                 import traceback
                 traceback.print_exc()
-                return web.json_response({'error': str(e)}, status=500)
 
-        # Set the custom task handler
-        ws_server.set_task_handler(task_handler)
+    async def _handle_command(self, command: str):
+        """Handle special commands"""
+        cmd = command.lower().strip()
 
-        # Keep running
-        try:
-            await asyncio.Event().wait()
-        except KeyboardInterrupt:
-            print("\nShutting down...")
-        return
+        if cmd == '/help':
+            print("\nCommands:")
+            print("  /help    - Show this help message")
+            print("  /clear   - Clear the screen")
+            print("  /history - Show command history")
+            print("  /exit    - Exit the program")
+            print("  Ctrl+R   - Search command history")
+            print()
 
-    # If --task flag is provided, execute single task using terminal agent
-    if args.task:
-        from terminal_agent import TerminalAgent
+        elif cmd == '/clear':
+            terminal_ui.clear_screen()
 
-        # Show banner unless disabled
-        if not args.no_ui:
-            terminal_ui.print_banner()
+        elif cmd == '/history':
+            print("\nCommand History:")
+            history_len = readline.get_current_history_length()
+            for i in range(1, history_len + 1):
+                item = readline.get_history_item(i)
+                if item:
+                    print(f"  {i}: {item}")
+            print()
 
-        agent = TerminalAgent()
-        result = await agent.process_task(args.task)
+        elif cmd == '/exit':
+            print("\nGoodbye!")
+            sys.exit(0)
 
-        if not args.no_ui:
-            print()  # Add newline after task
         else:
-            print(f"\nResult: {result}")
-        return
+            print(f"\nUnknown command: {command}")
+            print("Type /help for available commands")
+            print()
 
-    # Default: Run in interactive terminal mode (like Claude Code)
-    from terminal_agent import TerminalAgent
 
+async def main():
+    """Main entry point for terminal agent"""
     agent = TerminalAgent()
     await agent.run_interactive()
 
@@ -328,11 +353,6 @@ async def main():
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, EOFError, SystemExit, asyncio.exceptions.CancelledError):
-        # Clean exit without stack trace
-        pass
-    except Exception as e:
-        print(f"\nError: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n\nGoodbye!")
+        sys.exit(0)

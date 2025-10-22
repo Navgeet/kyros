@@ -95,8 +95,7 @@ You are a GUI Agent. Your job is to analyze the given screenshot and execute the
 - Only generate 1 action at a time. Also add a comment before every action
 - Don't repeat the same action again and again
 - Look at the "Currently active windows" list (format: window_id desktop host window_title) to determine which window to focus
-- The mouse cursor looks like a red dot
-- Analyze the screenshot carefully, don't make up GUI elements
+
 
 # Example
 
@@ -145,12 +144,20 @@ tools.click(0.5, 0.3)
             cursor_x, cursor_y = None, None
             try:
                 import Xlib.display
-                display = Xlib.display.Display(env.get('DISPLAY', ':0'))
-                root = display.screen().root
-                pointer = root.query_pointer()
-                cursor_x = pointer.root_x
-                cursor_y = pointer.root_y
-                display.close()
+                # Suppress Xlib warnings about missing xauthority
+                import sys
+                from io import StringIO
+                old_stderr = sys.stderr
+                sys.stderr = StringIO()
+                try:
+                    display = Xlib.display.Display(env.get('DISPLAY', ':0'))
+                    root = display.screen().root
+                    pointer = root.query_pointer()
+                    cursor_x = pointer.root_x
+                    cursor_y = pointer.root_y
+                    display.close()
+                finally:
+                    sys.stderr = old_stderr
             except Exception as e:
                 # If Xlib fails, don't draw cursor
                 pass
@@ -161,15 +168,20 @@ tools.click(0.5, 0.3)
             # Only draw cursor if we successfully got the position
             if cursor_x is not None and cursor_y is not None:
                 draw = ImageDraw.Draw(screenshot)
-                # Draw a simple cursor (red circle with white outline)
-                cursor_size = 10
-                draw.ellipse(
-                    [cursor_x - cursor_size, cursor_y - cursor_size,
-                     cursor_x + cursor_size, cursor_y + cursor_size],
-                    fill='red',
-                    outline='white',
-                    width=2
-                )
+                # Draw a mouse pointer arrow
+                pointer_size = 16
+                # Define pointer arrow points (pointing up-left)
+                pointer_points = [
+                    (cursor_x, cursor_y),  # Tip
+                    (cursor_x, cursor_y + pointer_size),  # Bottom of shaft
+                    (cursor_x + pointer_size * 0.4, cursor_y + pointer_size * 0.7),  # Inner corner
+                    (cursor_x + pointer_size * 0.7, cursor_y + pointer_size),  # Right point
+                    (cursor_x + pointer_size * 0.5, cursor_y + pointer_size * 0.5),  # Middle notch
+                ]
+                # Draw white outline
+                draw.polygon(pointer_points, fill='white', outline='black', width=2)
+                # Draw black pointer on top
+                draw.polygon(pointer_points, outline='black', width=1)
 
             # Convert to JPEG
             buffer = BytesIO()
@@ -479,11 +491,11 @@ tools.click(0.5, 0.3)
             exec_result = self.execute_action(action_code)
 
             # Log tool execution result
-            print(f"Tool execution result: {exec_result}")
-            if exec_result.get("stderr"):
-                print(f"Tool stderr: {exec_result['stderr']}")
-            if exec_result.get("exitCode") != 0:
-                print(f"Tool failed with exit code: {exec_result['exitCode']}")
+            # print(f"Tool execution result: {exec_result}")
+            # if exec_result.get("stderr"):
+            #     print(f"Tool stderr: {exec_result['stderr']}")
+            # if exec_result.get("exitCode") != 0:
+            #     print(f"Tool failed with exit code: {exec_result['exitCode']}")
 
             # Send execution result
             self.send_llm_update("action_result", {

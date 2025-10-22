@@ -55,13 +55,10 @@ def compact_context(
 Context to compact:
 {content}
 
-Please provide a concise summary of the above context, preserving all critical information needed to continue the task. Focus on:
-1. Key actions taken or responses provided
-2. Important results or outcomes
-3. Current state or progress
-4. Any errors or issues encountered
-
-Keep the summary under 500 words."""
+Guidelines:
+- If there is a history of previous actions and results, keep only the most recent ones that are relevant
+- Summarize long texts where possible
+"""
 
     messages = [{
         "role": "user",
@@ -76,6 +73,16 @@ Keep the summary under 500 words."""
         "max_tokens": max_tokens,
         "messages": messages
     }, agent_id, agent_name)
+
+    # Send compaction start event
+    if websocket_callback:
+        websocket_callback({
+            "type": "compaction_start",
+            "data": {
+                "model": model,
+                "max_tokens": max_tokens
+            }
+        })
 
     # Send LLM call start event
     if websocket_callback:
@@ -124,6 +131,16 @@ Keep the summary under 500 words."""
             "data": {
                 "purpose": "context_compaction",
                 "response": compacted_text,
+                "original_word_count": count_words(str(content)),
+                "compacted_word_count": count_words(compacted_text)
+            }
+        })
+
+    # Send compaction end event
+    if websocket_callback:
+        websocket_callback({
+            "type": "compaction_end",
+            "data": {
                 "original_word_count": count_words(str(content)),
                 "compacted_word_count": count_words(compacted_text)
             }
