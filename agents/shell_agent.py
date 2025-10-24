@@ -110,7 +110,7 @@ When the task is complete, respond with:
                 "cwd": self.working_directory
             }
 
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process a message and execute shell commands"""
         try:
             task = message.get("content", "")

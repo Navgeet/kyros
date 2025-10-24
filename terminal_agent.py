@@ -108,7 +108,7 @@ class TerminalAgent:
 
                 try:
                     # Process message with boss agent
-                    response = self.boss_agent.process_message(message)
+                    response = await self.boss_agent.process_message(message)
 
                     action = response.get("action", {})
                     action_type = action.get("type")
@@ -200,16 +200,25 @@ class TerminalAgent:
                                 }
                             })
 
+                            # Build message with context from previous responses
+                            full_message = agent_message
+                            # For BrowserBossAgent, include known xpaths from previous delegations
+                            if agent_type == "BrowserBossAgent" and "agent_responses" in message:
+                                known_xpaths = []
+                                for prev_resp in message.get("agent_responses", []):
+                                    if prev_resp.get("agent_type") == "BrowserBossAgent":
+                                        resp_data = prev_resp.get("response", {})
+                                        summary = resp_data.get("summary", "")
+                                        # Extract "Known XPaths:" section if it exists
+                                        if "Known XPaths:" in summary:
+                                            full_message += "\n\nKnown XPaths from previous work:\n"
+                                            xpath_section = summary.split("Known XPaths:")[1]
+                                            full_message += xpath_section
+
                             # Process message with subagent
-                            import inspect
-                            if inspect.iscoroutinefunction(agent.process_message):
-                                subagent_response = await agent.process_message({
-                                    "content": agent_message
-                                })
-                            else:
-                                subagent_response = agent.process_message({
-                                    "content": agent_message
-                                })
+                            subagent_response = await agent.process_message({
+                                "content": full_message
+                            })
 
                             # Add subagent response to message for next iteration
                             if "agent_responses" not in message:

@@ -163,7 +163,7 @@ Your response must be ONLY a JSON object with no additional text:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process a message and return a response"""
         try:
             # Increment step count

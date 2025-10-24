@@ -58,14 +58,16 @@ Your job is to execute the given task by performing step-by-step actions.
 - scroll_into_view(xpath): Scroll an element into view
 - close(): Close the current browser
 - wait(seconds): Wait for specified seconds
-- exit(message, exitCode): Exit the agent when finished
+- exit(summary, exitCode): Exit the agent when finished
 
 # Rules
 
 - Respond with a JSON object containing your thought process and the action to execute
 - Break down complex tasks into simple, atomic actions
 - Always verify your actions by observing results
-- When the task is complete, call exit with an appropriate message
+- When the task is complete, call exit with an appropriate summary/message
+- If browser was opened in a previous task, reuse that (don't launch again)
+- When exiting, include in the summary what was accomplished and any important state (e.g., "Filled form with values X, Y, Z and clicked Submit")
 
 # Response Format
 
@@ -89,7 +91,7 @@ When the task is complete, respond with:
   "action": {
     "tool": "exit",
     "args": {
-      "message": "Completion message",
+      "summary": "Completion message with context about what was accomplished",
       "exitCode": 0
     }
   }
@@ -527,12 +529,15 @@ When the task is complete, respond with:
                 "error": str(e)
             }
 
-    def _exit(self, message: str, exitCode: int = 0) -> Dict[str, Any]:
+    def _exit(self, summary: str = None, message: str = None, exitCode: int = 0) -> Dict[str, Any]:
         """Exit the agent"""
+        # Support both 'summary' and 'message' parameters for backwards compatibility
+        exit_message = summary or message or "Agent completed"
         return {
             "success": True,
             "exit": True,
-            "message": message,
+            "summary": exit_message,
+            "message": exit_message,  # Keep for backwards compatibility
             "exitCode": exitCode
         }
 
@@ -585,20 +590,7 @@ When the task is complete, respond with:
                 "error": str(e)
             }
 
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a message and execute browser actions"""
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    lambda: asyncio.run(self._process_message_async(message))
-                )
-                return future.result()
-        except RuntimeError:
-            return asyncio.run(self._process_message_async(message))
-
-    async def _process_message_async(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Async version of process_message"""
         try:
             task = message.get("content", "")
@@ -661,13 +653,19 @@ When the task is complete, respond with:
                         cleaned_response = strip_json_code_blocks(response)
                         response_data = json.loads(cleaned_response)
                     except json.JSONDecodeError:
-                        print(f"ERROR: BrowserActionAgent received invalid JSON response: {response}")
-                        return {
-                            "success": False,
-                            "error": "Invalid response format",
-                            "iterations": iteration,
-                            "history": self.history
-                        }
+                        # Try fixing common issues (unescaped newlines in strings)
+                        try:
+                            # Replace literal newlines with escaped newlines
+                            fixed_response = cleaned_response.replace('\n', '\\n')
+                            response_data = json.loads(fixed_response)
+                        except json.JSONDecodeError:
+                            print(f"ERROR: BrowserActionAgent received invalid JSON response: {response}")
+                            return {
+                                "success": False,
+                                "error": "Invalid response format",
+                                "iterations": iteration,
+                                "history": self.history
+                            }
 
                     # Send thought update
                     self.send_llm_update("thought", {
@@ -710,9 +708,13 @@ When the task is complete, respond with:
                     if exec_result.get("exit", False):
                         # Don't close browser - keep it open for subsequent tasks
                         # Browser will be kept alive across multiple delegations from BrowserBossAgent
+                        summary = exec_result.get("summary", exec_result.get("message", "Task completed"))
                         return {
                             "success": True,
-                            "result": exec_result.get("message", "Task completed"),
+                            "exit": True,
+                            "summary": summary,
+                            "message": summary,  # For backwards compatibility
+                            "result": summary,
                             "iterations": iteration,
                             "history": self.history
                         }

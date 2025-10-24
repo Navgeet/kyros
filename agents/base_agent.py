@@ -71,7 +71,7 @@ class BaseAgent(ABC):
         pass
 
     @abstractmethod
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process a message and return a response"""
         pass
 

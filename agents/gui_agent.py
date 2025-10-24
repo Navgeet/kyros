@@ -11,6 +11,12 @@ from agents.base_agent import BaseAgent
 import tools
 from utils import compact_context, count_words, save_screenshot
 
+# Setup X11 authentication to avoid Xlib warnings
+try:
+    import xauth_setup
+except ImportError:
+    pass
+
 
 class GUIAgent(BaseAgent):
     """GUI agent that handles mouse and keyboard actions"""
@@ -87,7 +93,7 @@ You are a GUI Agent. Your job is to analyze the given screenshot and execute the
 - tools.type(text): Type the given text
 - tools.hotkey(keys): Press a hotkey combination (e.g., 'super+r', 'ctrl+c')
 - tools.wait(n): Wait for n seconds.
-- tools.exit(message, exitCode): Exit the agent when finished (exitCode 0 for success, -1 for error)
+- tools.exit(summary, exitCode): Exit the agent when finished (exitCode 0 for success, -1 for error)
 
 # Rules
 
@@ -144,44 +150,28 @@ tools.click(0.5, 0.3)
             cursor_x, cursor_y = None, None
             try:
                 import Xlib.display
-                # Suppress Xlib warnings about missing xauthority
-                import sys
-                from io import StringIO
-                old_stderr = sys.stderr
-                sys.stderr = StringIO()
-                try:
-                    display = Xlib.display.Display(env.get('DISPLAY', ':0'))
-                    root = display.screen().root
-                    pointer = root.query_pointer()
-                    cursor_x = pointer.root_x
-                    cursor_y = pointer.root_y
-                    display.close()
-                finally:
-                    sys.stderr = old_stderr
+                display = Xlib.display.Display(env.get('DISPLAY', ':0'))
+                root = display.screen().root
+                pointer = root.query_pointer()
+                cursor_x = pointer.root_x
+                cursor_y = pointer.root_y
+                display.close()
             except Exception as e:
                 # If Xlib fails, don't draw cursor
                 pass
 
-            # Load screenshot and draw cursor
+            # Load screenshot and overlay cursor
             screenshot = Image.open(temp_path)
 
-            # Only draw cursor if we successfully got the position
+            # Only overlay cursor if we successfully got the position
             if cursor_x is not None and cursor_y is not None:
-                draw = ImageDraw.Draw(screenshot)
-                # Draw a mouse pointer arrow
-                pointer_size = 16
-                # Define pointer arrow points (pointing up-left)
-                pointer_points = [
-                    (cursor_x, cursor_y),  # Tip
-                    (cursor_x, cursor_y + pointer_size),  # Bottom of shaft
-                    (cursor_x + pointer_size * 0.4, cursor_y + pointer_size * 0.7),  # Inner corner
-                    (cursor_x + pointer_size * 0.7, cursor_y + pointer_size),  # Right point
-                    (cursor_x + pointer_size * 0.5, cursor_y + pointer_size * 0.5),  # Middle notch
-                ]
-                # Draw white outline
-                draw.polygon(pointer_points, fill='white', outline='black', width=2)
-                # Draw black pointer on top
-                draw.polygon(pointer_points, outline='black', width=1)
+                try:
+                    cursor_img = Image.open('./cursor.png')
+                    # Paste cursor at the position (use alpha channel if available)
+                    screenshot.paste(cursor_img, (cursor_x, cursor_y), cursor_img if cursor_img.mode == 'RGBA' else None)
+                except Exception:
+                    # If cursor image not available, skip cursor overlay
+                    pass
 
             # Convert to JPEG
             buffer = BytesIO()
@@ -344,7 +334,7 @@ tools.click(0.5, 0.3)
             # Use regular LLM
             return self.call_llm(messages=messages, system=system)
 
-    def verify_action(self, screenshot_before: str, screenshot_after: str, action: str) -> str:
+    async def verify_action(self, screenshot_before: str, screenshot_after: str, action: str) -> str:
         """Verify if action succeeded by comparing screenshots"""
         messages = [
             {
@@ -374,15 +364,28 @@ tools.click(0.5, 0.3)
             }
         ]
 
+        # Send LLM call start event for verification
+        self.send_llm_update("llm_call_start", {
+            "agent_type": "GUIAgent"
+        })
+
         verification = self.call_llm(
             messages=messages,
             system="You are a verification assistant. Compare two screenshots (before and after an action) and determine if the action succeeded. Be concise.",
             max_tokens=500
         )
 
+        # Send content chunk for status animation
+        self.send_llm_update("llm_content_chunk", {
+            "content": verification[:100] + "..." if len(verification) > 100 else verification
+        })
+
+        # Send LLM call end event
+        self.send_llm_update("llm_call_end", {})
+
         return verification
 
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process a message and execute GUI actions in a loop"""
         task = message.get("content", "")
         self.running = True
@@ -519,12 +522,18 @@ tools.click(0.5, 0.3)
             # Capture screenshot after action
             screenshot_after = self.get_screenshot_base64()
 
-            # Verify action
-            verification = self.verify_action(screenshot_before, screenshot_after, action_code)
+            # Send verification start event
+            self.send_llm_update("verification_start", {
+                "action": action_code
+            })
 
-            # Send verification update
-            self.send_llm_update("action_verification", {
-                "verification": verification
+            # Verify action
+            verification = await self.verify_action(screenshot_before, screenshot_after, action_code)
+
+            # Send verification end event
+            self.send_llm_update("verification_end", {
+                "action": action_code,
+                "success": True
             })
 
             # Add to history

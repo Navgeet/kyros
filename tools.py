@@ -18,8 +18,16 @@ except ImportError:
 @dataclass
 class ExitException(Exception):
     """Exception to signal agent should exit"""
-    message: str
-    exit_code: int
+    message: str = None
+    summary: str = None  # Preferred field for context summary
+    exit_code: int = 0
+
+    def __post_init__(self):
+        """Ensure summary is set from message for backwards compatibility"""
+        if self.summary is None and self.message is not None:
+            self.summary = self.message
+        elif self.message is None and self.summary is not None:
+            self.message = self.summary
 
 
 def click(x: float, y: float, button: int = 1, clicks: int = 1) -> dict:
@@ -316,6 +324,14 @@ def focus_window(window_id: str) -> dict:
         }
 
 
-def exit(message: str, exit_code: int = 0) -> None:
-    """Exit the agent loop"""
-    raise ExitException(message=message, exit_code=exit_code)
+def exit(summary: str = None, message: str = None, exit_code: int = 0) -> None:
+    """Exit the agent loop
+
+    Args:
+        summary: Context summary (preferred field)
+        message: Exit message (for backwards compatibility)
+        exit_code: Exit code (0 for success, -1 for failure)
+    """
+    # Support both 'summary' and 'message' parameters
+    exit_summary = summary or message or "Agent completed"
+    raise ExitException(message=exit_summary, summary=exit_summary, exit_code=exit_code)

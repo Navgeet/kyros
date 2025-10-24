@@ -322,6 +322,11 @@ Respond with JSON:
             }
         ]
 
+        # Send LLM call start event for verification
+        self.send_llm_update("llm_call_start", {
+            "agent_type": "XPathAgent"
+        })
+
         # Use verification client (Qwen) instead of main client
         try:
             response = self.verification_client.chat.completions.create(
@@ -333,33 +338,39 @@ Respond with JSON:
             )
             response_text = response.choices[0].message.content
 
+            # Send content chunk for status animation
+            self.send_llm_update("llm_content_chunk", {
+                "content": response_text[:100] + "..." if len(response_text) > 100 else response_text
+            })
+
+            # Send LLM call end event
+            self.send_llm_update("llm_call_end", {})
+
             cleaned_response = strip_json_code_blocks(response_text)
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
+            self.send_llm_update("llm_call_end", {})
             return {
                 "correct": False,
                 "thought": "Failed to parse LLM response",
                 "feedback": "Try again"
             }
         except Exception as e:
+            self.send_llm_update("llm_call_end", {})
             return {
                 "correct": False,
                 "thought": f"Verification failed: {str(e)}",
                 "feedback": "Try again"
             }
 
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a message and generate XPath (sync wrapper for async method)"""
-        return asyncio.run(self._process_message_async(message))
-
-    async def _process_message_async(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Async version of process_message"""
         try:
-            query = message.get("query")
+            query = message.get("content") or message.get("query")
             if not query:
                 return {
                     "success": False,
-                    "error": "Missing query parameter"
+                    "error": "Missing content parameter"
                 }
 
 

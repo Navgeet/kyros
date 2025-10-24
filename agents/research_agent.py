@@ -99,7 +99,7 @@ When research is complete:
                 "error": str(e)
             }
 
-    def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process a message and conduct research"""
         task = message.get("content", "")
         max_iterations = message.get("max_iterations", 10)

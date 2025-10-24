@@ -66,7 +66,7 @@ class MultiAgentOrchestrator:
 
                 try:
                     # Process message with boss agent
-                    response = self.boss_agent.process_message(message)
+                    response = await self.boss_agent.process_message(message)
 
                     action = response.get("action", {})
                     action_type = action.get("type")
@@ -163,16 +163,9 @@ class MultiAgentOrchestrator:
                             })
 
                             # Process message with subagent
-                            # Check if process_message is async (for BrowserBossAgent, etc.)
-                            import inspect
-                            if inspect.iscoroutinefunction(agent.process_message):
-                                subagent_response = await agent.process_message({
-                                    "content": agent_message
-                                })
-                            else:
-                                subagent_response = agent.process_message({
-                                    "content": agent_message
-                                })
+                            subagent_response = await agent.process_message({
+                                "content": agent_message
+                            })
 
                             # Add subagent response to message for next iteration
                             if "agent_responses" not in message:

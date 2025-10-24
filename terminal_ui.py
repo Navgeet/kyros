@@ -165,10 +165,17 @@ class TerminalUI:
 
         elif event_type == 'llm_call_start':
             # Track which agent is calling LLM but don't show status yet
-            agent_type = event.get('agent_type', '')
+            agent_type = event.get('agent_type', data.get('purpose', ''))
             self.in_llm_call = True
             self.llm_buffer = ""
             self.current_agent_name = agent_type
+
+            # Check if this is for compaction, verification, or regular thinking
+            if 'context_compaction' in agent_type or data.get('purpose') == 'context_compaction':
+                if self.current_status_type not in ["Verifying"]:
+                    self.current_status_type = "Compacting"
+            elif self.current_status_type not in ["Verifying", "Compacting"]:
+                self.current_status_type = "Thinking"
             # Don't show status yet - wait for first chunk
 
         elif event_type == 'llm_content_chunk':
@@ -180,6 +187,8 @@ class TerminalUI:
                 self.show_status("Verifying")
             elif self.current_status_type == "Compacting":
                 self.show_status("Compacting")
+            elif self.current_status_type == "Thinking":
+                self.show_status("Thinking")
             elif self.in_llm_call:
                 self.show_status("Thinking")
 
@@ -187,7 +196,10 @@ class TerminalUI:
             # Clear thinking status and stop LLM call tracking
             self.in_llm_call = False
             self.llm_buffer = ""
-            self.clear_status()
+            # Only clear status if it was Thinking (not Verifying/Compacting)
+            if self.current_status_type == "Thinking":
+                self.current_status_type = None
+                self.clear_status()
 
         elif event_type == 'action_execute':
             # Clear any status before showing action

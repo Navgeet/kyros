@@ -6,6 +6,7 @@ import os
 from PIL import Image
 from io import BytesIO
 from typing import List, Dict, Any, Optional, Callable
+from datetime import datetime
 from agents.base_agent import BaseAgent
 from utils import strip_json_code_blocks, compact_context, count_words, save_screenshot
 
@@ -30,10 +31,22 @@ class BrowserBossAgent(BaseAgent):
             config_dict=config_dict
         )
         self.subagents: Dict[str, Any] = {}
+        self.agent_summaries: Dict[str, str] = {}  # Track summaries from agent completions
         self.config_dict = config_dict
         self.response_history: List[Dict[str, Any]] = []
         self.compacted_context: str = ""
         self.step_count: int = 0
+        self.summary_log_file = "/tmp/agent_summaries.log"  # Log file for summaries
+
+    def log_summary(self, agent_type: str, summary: str):
+        """Log agent summary to file"""
+        try:
+            timestamp = datetime.now().isoformat()
+            log_entry = f"[{timestamp}] {agent_type}: {summary}\n"
+            with open(self.summary_log_file, "a") as f:
+                f.write(log_entry)
+        except Exception as e:
+            print(f"Error logging summary: {e}")
 
     def get_screenshot_base64(self) -> str:
         """Capture screenshot of entire screen and return as base64-encoded JPEG using scrot"""
@@ -126,7 +139,7 @@ Finishing up:
   "thought": "Your reasoning about the task",
   "action": {
     "type": "exit",
-    "message": "completion message"
+    "summary": "context about task"
   }
 }
 
@@ -134,10 +147,9 @@ Finishing up:
 
 - CRITICAL: Respond with ONLY valid JSON. Do NOT include any text before or after the JSON
 - Always analyze the screenshot first
-- Prefer using XPathAgent over GUIAgent whenever possible: get XPath (XPath) → perform action (Browser)
+- Prefer using XPathAgent over GUIAgent whenever possible
 - Fallback to GUIAgent if XPath not available/working
-- When delegating: provide clear, specific instructions
-- Use "exit" action type when the task is complete
+- Use "exit" action type when the task is complete. In summary, mention the browser state
 
 ## Response Format Requirements
 
@@ -154,9 +166,28 @@ Your response must be ONLY a JSON object with no additional text:
             iteration = 0
 
             # Initialize agent_responses for this browser task
+            # If the message contains context about previously found xpaths, parse it
+            initial_agent_responses = []
+            if "Known XPaths:" in task:
+                # Extract the known xpaths section and build agent_responses
+                lines = task.split('\n')
+                for line in lines:
+                    if 'xpath=' in line:
+                        # Extract xpath information and add to initial responses
+                        if "✓" in line and "XPathAgent" in line:
+                            # Example: "✓ XPathAgent: xpath='//input[@id='number1Field']' for 'First number' field"
+                            # We'll store this as a successful XPathAgent result
+                            initial_agent_responses.append({
+                                "agent_type": "XPathAgent",
+                                "response": {
+                                    "success": True,
+                                    "xpath": line.split("xpath='")[1].split("'")[0] if "xpath='" in line else ""
+                                }
+                            })
+
             internal_message = {
                 "content": task,
-                "agent_responses": []
+                "agent_responses": initial_agent_responses
             }
 
             while iteration < max_iterations:
@@ -206,7 +237,44 @@ Your response must be ONLY a JSON object with no additional text:
                 if self.compacted_context:
                     context_parts.append(f"Previous Context (compacted):\n{self.compacted_context}\n\n")
 
-                context_parts.append(f"User Request: {internal_message.get('content', '')}\n\nAgent Responses: {internal_message.get('agent_responses', [])}")
+                context_parts.append(f"User Request: {internal_message.get('content', '')}\n")
+
+                # Extract useful information from agent responses (only show last few to avoid clutter)
+                agent_responses = internal_message.get('agent_responses', [])
+                if agent_responses:
+                    context_parts.append("\nRecent Agent Results (DO NOT REQUEST SAME INFORMATION AGAIN):\n")
+                    # Show only the most recent 5 results to avoid context overflow
+                    recent_responses = agent_responses[-5:]
+                    for i, resp in enumerate(recent_responses, 1):
+                        agent_type = resp.get('agent_type', 'Unknown')
+                        response = resp.get('response', {})
+
+                        # Extract key information based on agent type
+                        if agent_type == "XPathAgent":
+                            xpath = response.get('xpath', '')
+                            success = response.get('success', False)
+                            if xpath:
+                                # Show the xpath with success status
+                                status = "✓" if success else "✗"
+                                context_parts.append(f"{status} XPathAgent [Result {i}]: xpath='{xpath}'\n")
+                            else:
+                                error = response.get('error', 'Unknown error')
+                                context_parts.append(f"✗ XPathAgent [Result {i}] FAILED: {error}\n")
+                        elif agent_type == "BrowserActionAgent":
+                            success = response.get('success', False)
+                            result = response.get('result', response.get('message', ''))
+                            if success:
+                                context_parts.append(f"✓ BrowserActionAgent [Result {i}]: {result}\n")
+                            else:
+                                error = response.get('error', 'Unknown error')
+                                context_parts.append(f"✗ BrowserActionAgent [Result {i}] FAILED: {error}\n")
+                        elif agent_type == "GUIAgent":
+                            success = response.get('success', False)
+                            if success:
+                                context_parts.append(f"✓ GUIAgent [Result {i}]: action completed\n")
+                            else:
+                                error = response.get('error', 'Unknown error')
+                                context_parts.append(f"✗ GUIAgent [Result {i}] FAILED: {error}\n")
 
                 # Build messages for LLM
                 messages = [
@@ -257,9 +325,28 @@ Your response must be ONLY a JSON object with no additional text:
 
                 # Handle exit - task complete
                 if action_type == "exit":
+                    summary = action.get("summary", "Browser task completed")
+
+                    # Build comprehensive summary including any found XPaths for future reference
+                    comprehensive_summary = summary
+                    found_xpaths = []
+                    for resp in internal_message.get("agent_responses", []):
+                        if resp.get("agent_type") == "XPathAgent":
+                            response = resp.get("response", {})
+                            if response.get("success") and response.get("xpath"):
+                                found_xpaths.append(response.get("xpath"))
+
+                    if found_xpaths:
+                        comprehensive_summary += f"\n\nKnown XPaths:\n"
+                        for xpath in found_xpaths:
+                            comprehensive_summary += f"- xpath='{xpath}'\n"
+
+                    # Log the summary
+                    self.log_summary("BrowserBossAgent", comprehensive_summary)
                     return {
                         "success": True,
-                        "message": action.get("message", "Browser task completed"),
+                        "summary": comprehensive_summary,
+                        "message": comprehensive_summary,  # Keep for backwards compatibility
                         "thought": response_data.get("thought", ""),
                         "iterations": iteration
                     }
@@ -284,19 +371,26 @@ Your response must be ONLY a JSON object with no additional text:
                                 }
                             })
 
-                        # XPathAgent expects "query" parameter instead of "content"
-                        if agent_type == "XPathAgent":
-                            subagent_response = await agent._process_message_async({
-                                "query": agent_message
-                            })
-                        elif agent_type == "BrowserActionAgent":
-                            subagent_response = await agent._process_message_async({
-                                "content": agent_message
-                            })
+                        # Build message with context if available
+                        context = self.agent_summaries.get(agent_type, "")
+                        if context:
+                            full_message = f"Context from previous work:\n{context}\n\nNew task: {agent_message}"
                         else:
-                            subagent_response = agent.process_message({
-                                "content": agent_message
-                            })
+                            full_message = agent_message
+
+                        # Delegate to agent
+                        subagent_response = await agent.process_message({
+                            "content": full_message
+                        })
+
+                        # Extract and store summary from response if agent exited
+                        if subagent_response.get("exit") or "summary" in subagent_response:
+                            # Prefer 'summary' field over 'message' for backwards compatibility
+                            summary = subagent_response.get("summary", subagent_response.get("message", ""))
+                            if summary:
+                                self.agent_summaries[agent_type] = summary
+                                # Log the agent summary
+                                self.log_summary(agent_type, summary)
 
                         # Add subagent response to internal message for next iteration
                         if "agent_responses" not in internal_message:
