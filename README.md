@@ -1,13 +1,11 @@
 # Kyros - Computer Use Agent (CUA)
 
-A computer-use agent powered by InternLM API and InternVL3.5-241B-A28B model, running in a Docker container with VNC access.
+A computer-use agent built on a multi-agent architecture, running in a Docker container with VNC access.
 
-## Features
+## Demo
 
-- **Context-aware feedback loop**: Maintains a context array with messages, actions, and observations
-- **Screenshot analysis**: Captures and analyzes screenshots before and after actions
-- **Action verification**: Uses LLM to verify if actions succeeded
-- **Tool suite**: Click, type, hotkey, bash commands, and exit
+<iframe src="https://drive.google.com/file/d/1jHft7HIMBlnqR_m5KlwnqszaopXvbhfX/preview" width="640" height="480" allow="autoplay" allowfullscreen></iframe>
+
 
 ## Prerequisites
 
