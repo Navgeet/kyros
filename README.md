@@ -3,9 +3,7 @@
 A computer-use agent built on a multi-agent architecture, running in a Docker container with VNC access.
 
 ## Demo
-
-<iframe src="https://drive.google.com/file/d/1jHft7HIMBlnqR_m5KlwnqszaopXvbhfX/preview" width="640" height="480" allow="autoplay" allowfullscreen></iframe>
-
+![Record-1761297420954 (1)-002](https://github.com/user-attachments/assets/cae8187e-b1fd-42b9-943e-f523c7800d71)
 
 ## Prerequisites
 
