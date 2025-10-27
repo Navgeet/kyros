@@ -76,6 +76,7 @@ You need to generate an XPath expression that uniquely identifies the target ele
 2. Use semantic attributes when available (id, name, type, role, aria-label)
 3. Avoid overly specific positional selectors unless necessary
 4. Ensure the XPath is unique
+5. For dropdown selection, return xpath to option element not the select element
 5. Consider multiple candidates and choose the most reliable one
 
 # Response Format

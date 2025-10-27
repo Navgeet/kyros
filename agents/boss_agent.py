@@ -114,6 +114,7 @@ finishing up:
 - When delegating: don't send the exact shell command or click coordinate, let the agent figure it out
 - When delegating: don't send too large or too small a task, achieve a middle ground
 - Use "exit" action type when the task is complete
+- For a multi-step task, report progress to user after every step
 
 ## Response Format Requirements
 
